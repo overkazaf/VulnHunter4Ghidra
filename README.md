@@ -2,6 +2,10 @@
 
 **Interactive vulnerability detection and taint analysis for native binaries.**
 
+[中文文档](README_CN.md)
+
+---
+
 VulnHunter4Ghidra finds vulnerabilities in compiled binaries (ELF, PE, Mach-O) by tracing data flow from user-controlled inputs (sources) to dangerous function calls (sinks). It runs as a Ghidra plugin for interactive analysis, or as a standalone CLI tool for CI/CD integration.
 
 ## Key Features
@@ -228,7 +232,7 @@ VulnHunter4Ghidra provides deeper analysis with actual data-flow evidence, while
 ## Development
 
 ```bash
-# Run Python tests (54 tests)
+# Run Python tests (59 tests)
 PYTHONPATH=python python -m pytest test/ -v
 
 # Build Java extension
@@ -259,7 +263,7 @@ VulnHunter4Ghidra/
 │   ├── engine.py       # Orchestration
 │   ├── server.py       # TCP server (port 13372)
 │   └── cli.py          # Standalone CLI
-└── test/               # 54 unit tests
+└── test/               # 59 unit tests
 ```
 
 ## License
