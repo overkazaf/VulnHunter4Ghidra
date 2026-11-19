@@ -19,7 +19,7 @@ import sys
 from .engine import VulnHunterEngine, resolve_import_stubs
 from .rules import canonical_func_name
 from .sarif import findings_to_sarif, load_baseline_fingerprints
-from .taint import _get_abi_reg_offsets
+from .taint import _get_abi_reg_offsets, iter_function_invocations
 
 logger = logging.getLogger("vulnhunter4ghidra")
 
@@ -138,8 +138,7 @@ def _build_function_info(project, registry=None) -> list[dict]:
             continue
 
         callsites = []
-        for site_block in func.get_call_sites():
-            target_addr = func.get_call_target(site_block)
+        for site_block, target_addr, _ in iter_function_invocations(project, func):
             if target_addr is not None and target_addr in kb_funcs:
                 callee_raw = kb_funcs[target_addr].name
                 callee_canon = func_name_map.get(target_addr, _normalize_func_name(callee_raw))

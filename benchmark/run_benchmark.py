@@ -186,7 +186,7 @@ EXPECTED_GOOD: set[str] = {
 }
 
 
-def run_cwe_benchmark(verify_symbolic: bool = True) -> dict:
+def run_cwe_benchmark(verify_symbolic: bool = True, opt_level: str = "-O0") -> dict:
     compiler = shutil.which("clang") or shutil.which("gcc")
     if compiler is None:
         raise RuntimeError("Neither clang nor gcc is installed on PATH")
@@ -200,7 +200,8 @@ def run_cwe_benchmark(verify_symbolic: bool = True) -> dict:
         subprocess.run(
             [
                 compiler,
-                "-O0",
+                opt_level,
+                "-fno-builtin",
                 "-fno-stack-protector",
                 "-D_FORTIFY_SOURCE=0",
                 "-Wno-format-security",
@@ -251,6 +252,7 @@ def run_cwe_benchmark(verify_symbolic: bool = True) -> dict:
     f1 = (2 * precision * recall / (precision + recall)) if (precision + recall) > 0 else 0.0
 
     return {
+        "opt_level": opt_level,
         "cases_bad": len(EXPECTED_BAD),
         "cases_good": len(EXPECTED_GOOD),
         "true_positives": tp,
@@ -267,26 +269,30 @@ def run_cwe_benchmark(verify_symbolic: bool = True) -> dict:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Run VulnHunter4Ghidra CWE benchmark suite")
+    parser.add_argument("--opt", choices=["-O0", "-O1", "-O2", "all"], default="all", help="Compiler optimization level")
     parser.add_argument("--no-verify", action="store_true", help="Disable Z3 symbolic check")
     parser.add_argument("--json", action="store_true", help="Output JSON metrics")
     args = parser.parse_args()
 
-    metrics = run_cwe_benchmark(verify_symbolic=not args.no_verify)
+    opts = ["-O0", "-O2"] if args.opt == "all" else [args.opt]
+    reports = [run_cwe_benchmark(verify_symbolic=not args.no_verify, opt_level=o) for o in opts]
+
     if args.json:
-        print(json.dumps(metrics, indent=2))
+        print(json.dumps(reports if len(reports) > 1 else reports[0], indent=2))
     else:
-        print("=" * 56)
-        print("VulnHunter4Ghidra 7-CWE Benchmark Scorecard")
-        print("=" * 56)
-        print(f"Vulnerable (bad_*) cases:  {metrics['cases_bad']}")
-        print(f"Patched    (good_*) cases: {metrics['cases_good']}")
-        print(f"True Positives  (TP):      {metrics['true_positives']}")
-        print(f"False Positives (FP):      {metrics['false_positives']}")
-        print(f"False Negatives (FN):      {metrics['false_negatives']}")
-        print(f"Precision:                 {metrics['precision'] * 100:.1f}%")
-        print(f"Recall:                    {metrics['recall'] * 100:.1f}%")
-        print(f"F1 Score:                  {metrics['f1_score'] * 100:.1f}%")
-        print(f"Elapsed Time:              {metrics['elapsed_seconds']}s")
+        for metrics in reports:
+            print("=" * 56)
+            print(f"VulnHunter4Ghidra 7-CWE Scorecard ({metrics['opt_level']})")
+            print("=" * 56)
+            print(f"Vulnerable (bad_*) cases:  {metrics['cases_bad']}")
+            print(f"Patched    (good_*) cases: {metrics['cases_good']}")
+            print(f"True Positives  (TP):      {metrics['true_positives']}")
+            print(f"False Positives (FP):      {metrics['false_positives']}")
+            print(f"False Negatives (FN):      {metrics['false_negatives']}")
+            print(f"Precision:                 {metrics['precision'] * 100:.1f}%")
+            print(f"Recall:                    {metrics['recall'] * 100:.1f}%")
+            print(f"F1 Score:                  {metrics['f1_score'] * 100:.1f}%")
+            print(f"Elapsed Time:              {metrics['elapsed_seconds']}s")
         print("=" * 56)
 
 

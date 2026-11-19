@@ -50,6 +50,7 @@ public class VulnHunterProvider extends ComponentProvider {
 
 	private JPanel mainPanel;
 	private JTabbedPane tabbedPane;
+	private JComboBox<String> engineModeCombo;
 	private JSpinner depthSpinner;
 	private JCheckBox verifyCheckBox;
 	private JComboBox<String> severityFilterCombo;
@@ -96,6 +97,11 @@ public class VulnHunterProvider extends ComponentProvider {
 		return (Integer) depthSpinner.getValue();
 	}
 
+	public String getSelectedEngineMode() {
+		Object sel = engineModeCombo.getSelectedItem();
+		return sel != null ? sel.toString() : "Hybrid (P-Code + angr)";
+	}
+
 	public boolean isSymbolicVerifyEnabled() {
 		return verifyCheckBox.isSelected();
 	}
@@ -131,6 +137,16 @@ public class VulnHunterProvider extends ComponentProvider {
 		runBtn.addActionListener(e -> plugin.runFullAnalysisTask(
 			getSelectedMaxDepth(), isSymbolicVerifyEnabled()));
 		bar.add(runBtn);
+
+		bar.add(new JLabel("Engine:"));
+		engineModeCombo = new JComboBox<>(new String[] {
+			"Hybrid (P-Code + angr)",
+			"P-Code SSA Only",
+			"angr VEX Only"
+		});
+		engineModeCombo.setToolTipText(
+			"Hybrid fuses Ghidra Decompiler High P-Code SSA with Python angr VEX + Z3");
+		bar.add(engineModeCombo);
 
 		bar.add(new JLabel("Depth:"));
 		depthSpinner = new JSpinner(new SpinnerNumberModel(5, 1, 15, 1));

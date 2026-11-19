@@ -314,6 +314,40 @@ def _eval_vex_expr(expr, state: BlockState, tmps: dict[int, ValSummary], bits: i
     return ValSummary()
 
 
+def iter_function_invocations(project, func) -> list[tuple[int, int | None, bool]]:
+    """Return all (block_addr, target_func_addr, is_tailcall) invocations in `func`.
+
+    Covers both standard `Ijk_Call` sites and `-O2`/`-Os` tail-call jumpout blocks
+    (`Ijk_Boring` jumping directly to another function's entry point).
+    """
+    invocations: list[tuple[int, int | None, bool]] = []
+    seen_blocks: set[int] = set()
+
+    try:
+        for site_block_addr in func.get_call_sites():
+            target_addr = func.get_call_target(site_block_addr)
+            invocations.append((site_block_addr, target_addr, False))
+            seen_blocks.add(site_block_addr)
+    except Exception:
+        pass
+
+    if _is_real_angr_project(project):
+        for jnode in getattr(func, "jumpout_sites", ()):
+            if jnode.addr in seen_blocks:
+                continue
+            try:
+                irsb = project.factory.block(jnode.addr, size=jnode.size).vex
+                if getattr(irsb, "jumpkind", "") == "Ijk_Boring" and getattr(irsb.next, "tag", "") == "Iex_Const":
+                    taddr = irsb.next.con.value
+                    if taddr != func.addr and taddr in project.kb.functions:
+                        invocations.append((jnode.addr, taddr, True))
+                        seen_blocks.add(jnode.addr)
+            except Exception:
+                pass
+
+    return invocations
+
+
 @dataclass
 class CallObservation:
     call_addr: int
@@ -383,17 +417,13 @@ def _analyze_function_vex(
         if src.source_type not in (SourceType.FUNC_PARAM, SourceType.ARGV):
             source_by_call_addr.setdefault(src.address, []).append(src)
 
-    # Resolve callee names for all callsites in func
-    call_target_names: dict[int, tuple[int | None, str]] = {}
-    try:
-        for site_block_addr in func.get_call_sites():
-            target_addr = func.get_call_target(site_block_addr)
-            cname = ""
-            if target_addr is not None and target_addr in project.kb.functions:
-                cname = canonical_func_name(project.kb.functions[target_addr].name)
-            call_target_names[site_block_addr] = (target_addr, cname)
-    except Exception:
-        pass
+    # Resolve callee names for all callsites and -O2 tail-calls in func
+    call_target_names: dict[int, tuple[int | None, str, bool]] = {}
+    for site_block_addr, target_addr, is_tail in iter_function_invocations(project, func):
+        cname = ""
+        if target_addr is not None and target_addr in project.kb.functions:
+            cname = canonical_func_name(project.kb.functions[target_addr].name)
+        call_target_names[site_block_addr] = (target_addr, cname, is_tail)
 
     node_by_addr = {n.addr: n for n in func_graph.nodes()}
     entry_node = node_by_addr.get(func.addr)
@@ -460,9 +490,10 @@ def _analyze_function_vex(
                         state.buf_taints[bkey] = state.buf_taints.get(bkey, frozenset()) | data_val.taints
 
             jumpkind = getattr(irsb, "jumpkind", "")
-            if jumpkind == "Ijk_Call":
+            is_tailcall_site = node.addr in call_target_names and call_target_names[node.addr][2]
+            if jumpkind == "Ijk_Call" or is_tailcall_site:
                 call_ins_addr = last_ins_addr
-                target_addr, cname = call_target_names.get(node.addr, (None, ""))
+                target_addr, cname, is_tail = call_target_names.get(node.addr, (None, "", False))
                 arg_vals = [state.regs.get(roff, ValSummary()) for roff in arg_offsets]
                 arg_taints = [_effective_taints(state, av) for av in arg_vals]
 
@@ -544,7 +575,9 @@ def _analyze_function_vex(
                 call_obs.setdefault(node.addr, obs)
 
                 # Restore stack pointer across call return when architecture's `call` pushes ret addr
-                if sp_offset is not None and getattr(project.arch, "call_pushes_ret", False):
+                if is_tail:
+                    func_ret_taints.update(ret_taints)
+                elif sp_offset is not None and getattr(project.arch, "call_pushes_ret", False):
                     sp_val = state.regs.get(sp_offset)
                     if sp_val is not None and sp_val.stack_base is not None and sp_val.stack_off is not None:
                         state.regs[sp_offset] = ValSummary(
@@ -930,8 +963,8 @@ def _verify_interprocedural_chain_vex(
         )
 
         next_param_taints: dict[int, set[int]] = {}
-        for site_block_addr in cur_func.get_call_sites():
-            if cur_func.get_call_target(site_block_addr) != next_addr:
+        for site_block_addr, target_addr, _ in iter_function_invocations(project, cur_func):
+            if target_addr != next_addr:
                 continue
             obs = call_obs.get(site_block_addr)
             if obs is None:
@@ -1035,8 +1068,7 @@ def collect_interprocedural_param_taints(
             registry=registry,
         )
 
-        for site_block in cur_func.get_call_sites():
-            target_addr = cur_func.get_call_target(site_block)
+        for site_block, target_addr, _ in iter_function_invocations(project, cur_func):
             if target_addr is None or target_addr not in project.kb.functions:
                 continue
             callee_fn = project.kb.functions[target_addr]

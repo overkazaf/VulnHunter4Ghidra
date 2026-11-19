@@ -18,7 +18,12 @@ from .rules import (
     RuleRegistry,
     canonical_func_name,
 )
-from .taint import _get_abi_reg_offsets, _is_real_angr_project, _sign_extend
+from .taint import (
+    _get_abi_reg_offsets,
+    _is_real_angr_project,
+    _sign_extend,
+    iter_function_invocations,
+)
 
 logger = logging.getLogger("vulnhunter4ghidra")
 
@@ -243,11 +248,13 @@ def detect_semantic_vulns_in_function(
                     taints=cur.taints | frozenset(tset),
                 )
 
-    call_targets: dict[int, str] = {}
-    for site_block in func.get_call_sites():
-        taddr = func.get_call_target(site_block)
+    call_targets: dict[int, tuple[str, bool]] = {}
+    for site_block, taddr, is_tail in iter_function_invocations(project, func):
         if taddr is not None and taddr in project.kb.functions:
-            call_targets[site_block] = canonical_func_name(project.kb.functions[taddr].name)
+            call_targets[site_block] = (
+                canonical_func_name(project.kb.functions[taddr].name),
+                is_tail,
+            )
 
     in_states: dict[int, LifecycleState] = {entry_node.addr: init_state}
     worklist = [entry_node]
@@ -350,9 +357,10 @@ def detect_semantic_vulns_in_function(
                         state.unchecked_allocs.pop(pid, None)
 
             jumpkind = getattr(irsb, "jumpkind", "")
-            if jumpkind == "Ijk_Call":
+            is_tailcall_site = node.addr in call_targets and call_targets[node.addr][1]
+            if jumpkind == "Ijk_Call" or is_tailcall_site:
                 call_addr = last_ins_addr
-                cname = call_targets.get(node.addr, "")
+                cname, is_tail = call_targets.get(node.addr, ("", False))
                 arg_vals = [state.regs.get(roff, PtrVal()) for roff in arg_offsets]
 
                 # 1. Deallocator check: Double Free (CWE-415) or mark Freed
@@ -528,7 +536,7 @@ def detect_semantic_vulns_in_function(
                     else:
                         state.regs[ret_offset] = PtrVal()
 
-                if sp_offset is not None and getattr(project.arch, "call_pushes_ret", False):
+                if not is_tail and sp_offset is not None and getattr(project.arch, "call_pushes_ret", False):
                     sp_v = state.regs.get(sp_offset)
                     if sp_v is not None and sp_v.stack_base is not None and sp_v.stack_off is not None:
                         state.regs[sp_offset] = PtrVal(

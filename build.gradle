@@ -17,4 +17,6 @@ tasks.named('buildExtension') {
 	exclude '**/.venv/**'
 	exclude '**/test/**'
 	exclude '**/benchmark/**'
+	exclude '**/.github/**'
+	exclude '**/Dockerfile'
 }

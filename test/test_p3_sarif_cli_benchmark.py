@@ -159,14 +159,15 @@ def test_cli_sarif_and_baseline_differential_gate(tmp_path):
 
 
 @pytest.mark.skipif(shutil.which("clang") is None, reason="clang required for CWE benchmark")
-def test_7_cwe_benchmark_achieves_100_percent_precision_and_recall():
+@pytest.mark.parametrize("opt_level", ["-O0", "-O2"])
+def test_7_cwe_benchmark_achieves_100_percent_precision_and_recall(opt_level):
     repo_root = Path(__file__).resolve().parent.parent
     sys.path.insert(0, str(repo_root))
     try:
         from benchmark.run_benchmark import run_cwe_benchmark
-        metrics = run_cwe_benchmark(verify_symbolic=True)
-        assert metrics["precision"] == 1.0, f"Unexpected FPs: {metrics['false_positive_details']}"
-        assert metrics["recall"] == 1.0, f"Missed cases: {metrics['missed_cases']}"
+        metrics = run_cwe_benchmark(verify_symbolic=(opt_level == "-O0"), opt_level=opt_level)
+        assert metrics["precision"] == 1.0, f"[{opt_level}] Unexpected FPs: {metrics['false_positive_details']}"
+        assert metrics["recall"] == 1.0, f"[{opt_level}] Missed cases: {metrics['missed_cases']}"
         assert metrics["f1_score"] == 1.0
     finally:
         sys.path.pop(0)

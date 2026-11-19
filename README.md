@@ -10,7 +10,8 @@ VulnHunter4Ghidra finds vulnerabilities in compiled binaries (ELF, PE, Mach-O) b
 
 ## Key Features
 
-- **VEX IR Data-Flow Taint Analysis** — tracks register, stack-slot, and buffer taint from `recv`, `read`, `fgets`, `scanf`, `getenv`, `argv`, and library entry parameters to dangerous sinks while filtering read-only constant format/command literals and bounded stack copies
+- **Hybrid Dual-Engine Architecture (Ghidra High P-Code SSA + angr VEX/Z3)** — fuses Ghidra Decompiler's native `HighFunction` SSA def-use analyzer (supporting all 20+ Ghidra SLEIGH processors, raw firmware dumps, and zero-Python offline mode) with Python `angr` VEX IR + Z3 verification
+- **Optimization-Resilient (`-O0` to `-O2`/`-Os`) Taint Analysis** — tracks register, stack-slot, buffer, and tail-call (`jmp`/`b` jumpout) data flows while filtering read-only constant format/command literals and bounded stack copies
 - **Stateful Pointer & Arithmetic CWE Detectors** — dedicated VEX state machines for Use-After-Free (`CWE-416`), Double Free (`CWE-415`), Unchecked NULL Dereference (`CWE-476`), Integer Overflow to Allocation/Copy (`CWE-190`), and Stack Frame OOB Write (`CWE-120`)
 - **Z3 Symbolic Feasibility Verification** — bounded symbolic reachability (`--verify`) confirms satisfiable path constraints and prunes contradictory dead branches
 - **Interactive Ghidra Workbench** — dockable Findings/Sources/Sinks tables, step-by-step Taint Path tree with one-click Listing/Decompiler navigation, `ColorizingService` path highlighting, background cancellable `Task` execution, and `Bookmark` triage persistence

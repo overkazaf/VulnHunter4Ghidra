@@ -8,8 +8,8 @@ import ghidra.util.exception.CancelledException;
 import ghidra.util.task.TaskMonitor;
 
 /**
- * Extracts Ghidra function metadata (callsites, resolved thunks, parameter types,
- * export flags) on background worker threads with cooperative {@link TaskMonitor} support.
+ * Extracts Ghidra function metadata (callsites, -O2 tail-call jumps, resolved thunks,
+ * parameter types, export flags) on background worker threads with {@link TaskMonitor} support.
  */
 public final class ProgramScanner {
 
@@ -53,20 +53,25 @@ public final class ProgramScanner {
 		InstructionIterator instructions = program.getListing().getInstructions(func.getBody(), true);
 		while (instructions.hasNext()) {
 			Instruction instr = instructions.next();
-			if (instr.getFlowType().isCall()) {
-				for (var ref : instr.getReferencesFrom()) {
-					if (ref.getReferenceType().isCall()) {
-						Function callee = fm.getFunctionAt(ref.getToAddress());
-						if (callee != null) {
-							Function resolved = callee.isThunk()
-								? callee.getThunkedFunction(true)
-								: callee;
-							String calleeName = resolved != null ? resolved.getName() : callee.getName();
-							JsonObject cs = new JsonObject();
-							cs.addProperty("address", instr.getAddress().getOffset());
-							cs.addProperty("callee_name", calleeName);
-							callsites.add(cs);
-						}
+			boolean isCall = instr.getFlowType().isCall();
+			boolean isUncondJump = instr.getFlowType().isJump() && !instr.getFlowType().isConditional();
+			if (!isCall && !isUncondJump) {
+				continue;
+			}
+			for (var ref : instr.getReferencesFrom()) {
+				boolean validCallRef = isCall && ref.getReferenceType().isCall();
+				boolean validTailJumpRef = isUncondJump && ref.getReferenceType().isJump();
+				if (validCallRef || validTailJumpRef) {
+					Function callee = fm.getFunctionAt(ref.getToAddress());
+					if (callee != null && !callee.equals(func)) {
+						Function resolved = callee.isThunk()
+							? callee.getThunkedFunction(true)
+							: callee;
+						String calleeName = resolved != null ? resolved.getName() : callee.getName();
+						JsonObject cs = new JsonObject();
+						cs.addProperty("address", instr.getAddress().getOffset());
+						cs.addProperty("callee_name", calleeName);
+						callsites.add(cs);
 					}
 				}
 			}

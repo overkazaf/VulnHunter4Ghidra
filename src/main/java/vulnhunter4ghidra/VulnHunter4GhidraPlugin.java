@@ -29,6 +29,7 @@ import vulnhunter4ghidra.engine.EngineManager;
 import vulnhunter4ghidra.engine.EngineProtocol;
 import vulnhunter4ghidra.engine.EngineProtocol.Response;
 import vulnhunter4ghidra.highlight.TaintPathHighlighter;
+import vulnhunter4ghidra.pcode.PCodeTaintAnalyzer;
 import vulnhunter4ghidra.ui.ProgramScanner;
 import vulnhunter4ghidra.ui.VulnHunterProvider;
 
@@ -45,6 +46,7 @@ public class VulnHunter4GhidraPlugin extends Plugin {
 
 	private final EngineManager engineManager;
 	private final TaintPathHighlighter highlighter;
+	private final PCodeTaintAnalyzer pcodeAnalyzer;
 	private final VulnHunterProvider provider;
 	private final Map<String, String> binaryPathOverrides = new HashMap<>();
 
@@ -55,6 +57,7 @@ public class VulnHunter4GhidraPlugin extends Plugin {
 		super(tool);
 		this.engineManager = new EngineManager();
 		this.highlighter = new TaintPathHighlighter(tool);
+		this.pcodeAnalyzer = new PCodeTaintAnalyzer();
 		this.provider = new VulnHunterProvider(this);
 
 		new ScanVulnsAction(this);
@@ -187,39 +190,68 @@ public class VulnHunter4GhidraPlugin extends Plugin {
 		if (program == null) {
 			return;
 		}
+		String engineMode = provider.getSelectedEngineMode();
+		boolean usePCode = !engineMode.startsWith("angr");
+		boolean useAngr = !engineMode.startsWith("P-Code");
+
 		TaskLauncher.launch(new Task("VulnHunter4Ghidra — Full Taint Analysis", true, true, false) {
 			@Override
 			public void run(TaskMonitor monitor) {
 				try {
-					if (!ensureEngineReadyForProgram(program, monitor)) {
-						provider.setStatus("Analysis aborted — binary file not available");
-						return;
+					JsonArray pcodeFindings = new JsonArray();
+					if (usePCode) {
+						provider.setStatus("Running native Ghidra High P-Code SSA analysis...");
+						pcodeFindings = pcodeAnalyzer.analyzeProgram(program, null, monitor);
+						monitor.checkCancelled();
 					}
-					if (!fullScanCompleted) {
-						runScanStep(program, monitor);
-					}
-					monitor.checkCancelled();
-					monitor.setIndeterminate(true);
-					monitor.setMessage("Running VEX data-flow taint & CWE lifecycle analysis...");
-					provider.setStatus("Analyzing taint paths (depth=" + maxDepth
-						+ (verify ? ", Z3=on" : "") + ")...");
 
-					Response resp = engineManager.sendCommand(
-						EngineProtocol.analyzeTaintCmd(maxDepth, null, verify));
-					if (monitor.isCancelled()) {
-						throw new CancelledException();
+					JsonArray angrFindings = new JsonArray();
+					long totalSources = 0;
+					long totalSinks = 0;
+					if (useAngr) {
+						boolean angrReady = false;
+						try {
+							angrReady = ensureEngineReadyForProgram(program, monitor);
+						}
+						catch (Exception ex) {
+							if (!usePCode) {
+								throw ex;
+							}
+							Msg.warn(this, "Python angr engine unavailable, falling back to High P-Code SSA: "
+								+ ex.getMessage());
+						}
+
+						if (angrReady) {
+							if (!fullScanCompleted) {
+								runScanStep(program, monitor);
+							}
+							monitor.checkCancelled();
+							monitor.setIndeterminate(true);
+							monitor.setMessage("Running angr VEX data-flow & CWE lifecycle analysis...");
+							provider.setStatus("Analyzing VEX taint paths (depth=" + maxDepth
+								+ (verify ? ", Z3=on" : "") + ")...");
+
+							Response resp = engineManager.sendCommand(
+								EngineProtocol.analyzeTaintCmd(maxDepth, null, verify));
+							if (monitor.isCancelled()) {
+								throw new CancelledException();
+							}
+							if (!resp.isOk()) {
+								throw new IOException(resp.getMessage());
+							}
+							JsonObject data = resp.getData();
+							angrFindings = data.getAsJsonArray("findings");
+							totalSources = data.get("total_sources").getAsLong();
+							totalSinks = data.get("total_sinks").getAsLong();
+						}
 					}
-					if (!resp.isOk()) {
-						throw new IOException(resp.getMessage());
-					}
-					JsonObject data = resp.getData();
-					JsonArray findings = data.getAsJsonArray("findings");
-					provider.updateFindings(findings);
+
+					JsonArray merged = mergeFindings(pcodeFindings, angrFindings);
+					provider.updateFindings(merged);
 					provider.setStatus(String.format(
-						"Analysis complete: %d findings (%d sources, %d sinks)",
-						findings != null ? findings.size() : 0,
-						data.get("total_sources").getAsLong(),
-						data.get("total_sinks").getAsLong()));
+						"Analysis complete [%s]: %d findings (P-Code=%d, angr=%d, sources=%d, sinks=%d)",
+						engineMode, merged.size(), pcodeFindings.size(), angrFindings.size(),
+						totalSources, totalSinks));
 				}
 				catch (CancelledException ce) {
 					engineManager.requestCancel();
@@ -238,25 +270,43 @@ public class VulnHunter4GhidraPlugin extends Plugin {
 	public void runSingleFunctionAnalysisTask(Function func) {
 		Program program = func.getProgram();
 		String funcHex = "0x" + Long.toHexString(func.getEntryPoint().getOffset());
+		String engineMode = provider.getSelectedEngineMode();
+		boolean usePCode = !engineMode.startsWith("angr");
+		boolean useAngr = !engineMode.startsWith("P-Code");
+
 		TaskLauncher.launch(new Task("VulnHunter — Analyze " + func.getName(), true, false, false) {
 			@Override
 			public void run(TaskMonitor monitor) {
 				try {
 					monitor.setIndeterminate(true);
-					if (!ensureEngineReadyForProgram(program, monitor)) {
-						return;
+					JsonArray pcodeFindings = usePCode
+						? pcodeAnalyzer.analyzeProgram(program, func, monitor)
+						: new JsonArray();
+					JsonArray angrFindings = new JsonArray();
+					if (useAngr) {
+						try {
+							if (ensureEngineReadyForProgram(program, monitor)) {
+								JsonObject funcObj = ProgramScanner.extractSingleFunction(program, func);
+								engineManager.sendCommand(EngineProtocol.scanFunctionCmd(funcObj));
+								Response resp = engineManager.sendCommand(
+									EngineProtocol.analyzeTaintCmd(
+										1, funcHex, provider.isSymbolicVerifyEnabled()));
+								if (resp.isOk() && resp.getData() != null) {
+									angrFindings = resp.getData().getAsJsonArray("findings");
+								}
+							}
+						}
+						catch (Exception ex) {
+							if (!usePCode) {
+								throw ex;
+							}
+							Msg.warn(this, "angr unavailable for single-function scan, using P-Code only");
+						}
 					}
-					JsonObject funcObj = ProgramScanner.extractSingleFunction(program, func);
-					engineManager.sendCommand(EngineProtocol.scanFunctionCmd(funcObj));
-					Response resp = engineManager.sendCommand(
-						EngineProtocol.analyzeTaintCmd(1, funcHex, provider.isSymbolicVerifyEnabled()));
-					if (!resp.isOk()) {
-						throw new IOException(resp.getMessage());
-					}
-					JsonArray findings = resp.getData().getAsJsonArray("findings");
-					provider.updateFindings(findings);
+					JsonArray merged = mergeFindings(pcodeFindings, angrFindings);
+					provider.updateFindings(merged);
 					provider.setStatus(String.format("Function %s: %d finding(s)",
-						func.getName(), findings != null ? findings.size() : 0));
+						func.getName(), merged.size()));
 				}
 				catch (Exception e) {
 					provider.setStatus("Function analysis failed: " + e.getMessage());
@@ -265,6 +315,64 @@ public class VulnHunter4GhidraPlugin extends Plugin {
 				}
 			}
 		});
+	}
+
+	private static JsonArray mergeFindings(JsonArray pcodeFindings, JsonArray angrFindings) {
+		if (pcodeFindings == null || pcodeFindings.isEmpty()) {
+			return angrFindings != null ? angrFindings : new JsonArray();
+		}
+		if (angrFindings == null || angrFindings.isEmpty()) {
+			return pcodeFindings;
+		}
+
+		Map<String, JsonObject> byKey = new java.util.LinkedHashMap<>();
+		for (var el : angrFindings) {
+			JsonObject f = el.getAsJsonObject().deepCopy();
+			byKey.put(findingMatchKey(f), f);
+		}
+
+		for (var el : pcodeFindings) {
+			JsonObject pf = el.getAsJsonObject();
+			String key = findingMatchKey(pf);
+			if (byKey.containsKey(key)) {
+				JsonObject existing = byKey.get(key);
+				existing.addProperty("confidence", "high");
+				JsonArray ev = existing.has("evidence") && existing.get("evidence").isJsonArray()
+					? existing.getAsJsonArray("evidence")
+					: new JsonArray();
+				JsonArray mergedEv = new JsonArray();
+				mergedEv.add("[HYBRID] Independently confirmed by Ghidra High P-Code SSA and angr VEX");
+				ev.forEach(mergedEv::add);
+				if (pf.has("evidence") && pf.get("evidence").isJsonArray()) {
+					pf.getAsJsonArray("evidence").forEach(mergedEv::add);
+				}
+				existing.add("evidence", mergedEv);
+			}
+			else {
+				byKey.put(key, pf.deepCopy());
+			}
+		}
+
+		JsonArray out = new JsonArray();
+		int seq = 0;
+		for (JsonObject f : byKey.values()) {
+			f.addProperty("finding_id", ++seq);
+			out.add(f);
+		}
+		return out;
+	}
+
+	private static String findingMatchKey(JsonObject f) {
+		String cwe = f.has("cwe") ? f.get("cwe").getAsString() : "";
+		JsonObject tp = f.getAsJsonObject("taint_path");
+		JsonObject snk = tp != null ? tp.getAsJsonObject("sink") : null;
+		if (snk == null) {
+			return cwe + ":" + f.toString();
+		}
+		String addr = snk.has("address") ? snk.get("address").getAsString() : "";
+		String fn = snk.has("func_name") ? PCodeTaintAnalyzer.normalizeSymbol(snk.get("func_name").getAsString()) : "";
+		String callee = snk.has("callee_name") ? PCodeTaintAnalyzer.normalizeSymbol(snk.get("callee_name").getAsString()) : "";
+		return cwe + "|" + fn + "|" + callee + "|" + addr;
 	}
 
 	public void markCustomNodeTask(String role, String funcName, String addrHex) {

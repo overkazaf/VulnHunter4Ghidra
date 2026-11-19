@@ -10,7 +10,8 @@ VulnHunter4Ghidra 通过追踪用户输入（Source）到危险函数调用（Si
 
 ## 核心特性
 
-- **VEX IR 寄存器与栈槽级污点分析** — 精确追踪寄存器、栈缓冲区偏移与跨函数实参的数据流传播，自动过滤只读段常量格式化字符串/固定命令字面量与安全边界内的定长栈拷贝，大幅消除误报
+- **双引擎混合融合架构（Ghidra High P-Code SSA + angr VEX/Z3）** — 同时内置原生 Java 端 Ghidra 反编译器 `HighFunction` SSA 数据流引擎（支持全部 20+ 种 SLEIGH 处理器、裸固件镜像及零 Python 离线模式）与 Python `angr` VEX + Z3 引擎，双引擎交叉印证告警自动升级置信度
+- **抗编译器优化（`-O0` 至 `-O2`/`-Os`）污点追踪** — 完整覆盖寄存器、栈缓冲区偏移、跨函数实参与 `-O2` 尾调用优化（Tail-Call `jmp`/`b`）传播链路，自动过滤只读段常量格式串/命令字面量与安全定长拷贝
 - **有状态指针生命周期与整数溢出检测器** — 内置针对释放后重用（`CWE-416`，识别 `p = NULL`/重分配消解）、双重释放（`CWE-415`）、未判空解引用（`CWE-476`）、整数溢出流入分配/拷贝长度（`CWE-190`）以及定长栈越界写入（`CWE-120`）的语义状态机
 - **Z3 符号可达性验证** — 支持有界符号执行（`--verify`）验证路径约束可满足性，自动剪除互斥死分支（Dead Path）假阳性
 - **专业级 Ghidra 逆向工作台** — 可停靠 Findings / Sources / Sinks 表格面板、Taint Path 步进树一键联动跳转、`ColorizingService` 路径染色、后台可取消 `Task` 进度条，以及基于 Ghidra `Bookmark` 的审计状态（Confirmed / False Positive）持久化

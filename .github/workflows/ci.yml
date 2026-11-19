@@ -1,0 +1,31 @@
+name: VulnHunter4Ghidra CI & Benchmark Gate
+
+on:
+  push:
+    branches: [master, main, dev]
+  pull_request:
+    branches: [master, main, dev]
+
+jobs:
+  engine-tests-and-benchmark:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Install clang & Python dependencies
+        run: |
+          sudo apt-get update && sudo apt-get install -y --no-install-recommends clang
+          python -m pip install --upgrade pip
+          pip install -e . pytest
+
+      - name: Run Unit, IPC, SARIF, and Native Binary Accuracy Tests
+        run: pytest -v
+
+      - name: Run 7-CWE Multi-Optimization (-O0 & -O2) Benchmark Gate
+        run: python -m benchmark.run_benchmark --opt all
