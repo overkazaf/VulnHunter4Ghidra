@@ -70,8 +70,15 @@ public class EngineProtocol {
 	}
 
 	public static Command initCmd(String binaryPath) {
+		return initCmd(binaryPath, null);
+	}
+
+	public static Command initCmd(String binaryPath, String baseAddr) {
 		Map<String, Object> params = new HashMap<>();
 		params.put("binary_path", binaryPath);
+		if (baseAddr != null && !baseAddr.isBlank()) {
+			params.put("base_addr", baseAddr);
+		}
 		return new Command("init", params);
 	}
 

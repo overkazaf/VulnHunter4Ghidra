@@ -70,10 +70,11 @@ public class VulnHunter4GhidraPlugin extends Plugin {
 		}
 
 		try {
+			String baseAddr = "0x" + Long.toHexString(program.getImageBase().getOffset());
 			EngineProtocol.Response resp = engineManager.sendCommand(
-				EngineProtocol.initCmd(path));
+				EngineProtocol.initCmd(path, baseAddr));
 			if (resp.isOk()) {
-				Msg.info(this, "Initialized engine with: " + path);
+				Msg.info(this, "Initialized engine with: " + path + " @ " + baseAddr);
 				return true;
 			}
 			Msg.showError(this, null, "VulnHunter4Ghidra",

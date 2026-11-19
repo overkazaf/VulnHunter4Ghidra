@@ -1,5 +1,6 @@
 from dataclasses import dataclass, field
 from enum import Enum
+import hashlib
 
 
 class SourceType(Enum):
@@ -30,6 +31,12 @@ class Severity(Enum):
     MEDIUM = "medium"
     LOW = "low"
     INFO = "info"
+
+
+class Confidence(Enum):
+    HIGH = "high"
+    MEDIUM = "medium"
+    LOW = "low"
 
 
 @dataclass
@@ -63,9 +70,16 @@ class Sink:
     sink_type: SinkType
     cwe: str
     vulnerable_arg_index: int
+    tainted_arg_indices: tuple[int, ...] = ()
+    is_fortified: bool = False
+
+    def effective_tainted_args(self) -> tuple[int, ...]:
+        if self.tainted_arg_indices:
+            return self.tainted_arg_indices
+        return (self.vulnerable_arg_index,)
 
     def to_dict(self) -> dict:
-        return {
+        d = {
             "address": hex(self.address),
             "func_addr": hex(self.func_addr),
             "func_name": self.func_name,
@@ -74,6 +88,9 @@ class Sink:
             "cwe": self.cwe,
             "vulnerable_arg_index": self.vulnerable_arg_index,
         }
+        if self.is_fortified:
+            d["is_fortified"] = True
+        return d
 
 
 @dataclass
@@ -82,15 +99,24 @@ class TaintPath:
     sink: Sink
     path_addrs: list[int]
     path_funcs: list[str]
+    confidence: Confidence = Confidence.MEDIUM
+    evidence: list[str] = field(default_factory=list)
+    sanitized: bool = False
 
     def to_dict(self) -> dict:
-        return {
+        d = {
             "source": self.source.to_dict(),
             "sink": self.sink.to_dict(),
             "path_addrs": [hex(a) for a in self.path_addrs],
             "path_funcs": self.path_funcs,
             "path_length": len(self.path_addrs),
+            "confidence": self.confidence.value,
         }
+        if self.evidence:
+            d["evidence"] = list(self.evidence)
+        if self.sanitized:
+            d["sanitized"] = True
+        return d
 
 
 CWE_SEVERITY: dict[str, Severity] = {
@@ -122,16 +148,34 @@ class VulnFinding:
     title: str
     description: str
     verified: bool = False
+    confidence: Confidence = Confidence.MEDIUM
+    evidence: list[str] = field(default_factory=list)
+
+    @property
+    def fingerprint(self) -> str:
+        raw = "|".join([
+            self.cwe,
+            self.taint_path.source.func_name,
+            self.taint_path.source.source_type.value,
+            self.taint_path.sink.func_name,
+            self.taint_path.sink.callee_name,
+            "->".join(self.taint_path.path_funcs),
+        ])
+        return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:16]
 
     def to_dict(self) -> dict:
+        ev = list(self.evidence) if self.evidence else list(self.taint_path.evidence)
         return {
             "finding_id": self.finding_id,
+            "fingerprint": self.fingerprint,
             "taint_path": self.taint_path.to_dict(),
             "cwe": self.cwe,
             "severity": self.severity.value,
+            "confidence": self.confidence.value,
             "title": self.title,
             "description": self.description,
             "verified": self.verified,
+            "evidence": ev,
         }
 
 

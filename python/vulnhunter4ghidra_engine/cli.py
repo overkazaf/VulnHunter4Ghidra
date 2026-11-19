@@ -8,180 +8,156 @@ Usage:
 Designed for CI/CD integration: exits 0 if no findings, 1 if findings found,
 2 on error. JSON output (--json) is machine-parseable.
 """
+from __future__ import annotations
+
 import argparse
 import json
 import logging
 import sys
 
+from .engine import VulnHunterEngine, resolve_import_stubs
+from .rules import canonical_func_name
+from .taint import _get_abi_reg_offsets
+
 logger = logging.getLogger("vulnhunter4ghidra")
 
 
 def _normalize_func_name(name: str) -> str:
-    """Normalize platform-specific function names to canonical form.
-
-    Handles: macOS leading underscore (_fgets -> fgets),
-    hardened variants (___memcpy_chk -> memcpy, ___sprintf_chk -> sprintf).
-    """
-    if name.startswith("___") and name.endswith("_chk"):
-        name = name[3:-4]
-    name = name.lstrip("_")
-    return name
+    """Normalize platform-specific function names to canonical form."""
+    return canonical_func_name(name)
 
 
 def _build_stub_map(project) -> dict[int, str]:
-    """Map Mach-O stub addresses to resolved import names.
-
-    On Mach-O, external calls go through short stub functions that jump
-    through GOT slots. angr names these sub_XXXXX instead of the import name.
-    """
-    main_obj = project.loader.main_object
-    if not hasattr(main_obj, "imports"):
-        return {}
-
-    got_to_name: dict[int, str] = {}
-    for imp_name, reloc in main_obj.imports.items():
-        if reloc.rebased_addr:
-            got_to_name[reloc.rebased_addr] = _normalize_func_name(imp_name)
-
-    if not got_to_name:
-        return {}
-
-    stub_map: dict[int, str] = {}
-    for addr, func in project.kb.functions.items():
-        if func.is_simprocedure or len(func.graph) != 1:
-            continue
-        block = next(iter(func.graph.nodes()))
-        try:
-            irsb = project.factory.block(block.addr, size=block.size).vex
-            for stmt in irsb.statements:
-                if hasattr(stmt, "constants"):
-                    for const in stmt.constants:
-                        if const.value in got_to_name:
-                            stub_map[addr] = got_to_name[const.value]
-        except Exception:
-            pass
-    return stub_map
+    raw_map = resolve_import_stubs(project)
+    return {addr: canonical_func_name(name) for addr, name in raw_map.items()}
 
 
-def _build_function_info(project) -> list[dict]:
+def _infer_cli_params(project, func, clean_name: str, treat_as_library_export: bool) -> list[dict]:
+    """Infer function parameter descriptors for standalone CLI binaries."""
+    if clean_name in ("main", "wmain"):
+        return [
+            {"index": 0, "name": "argc", "type": "int"},
+            {"index": 1, "name": "argv", "type": "char * *"},
+        ]
+    if not treat_as_library_export:
+        return []
+
+    arg_offsets, _, _, _ = _get_abi_reg_offsets(project)
+    if not arg_offsets:
+        return []
+
+    used_arg_indices: set[int] = set()
+    written_regs: set[int] = set()
+    try:
+        entry_block = project.factory.block(func.addr)
+        irsb = entry_block.vex
+        for stmt in irsb.statements:
+            stag = getattr(stmt, "tag", "")
+            # Check expressions reading argument registers before they are overwritten
+            for expr in getattr(stmt, "expressions", []):
+                if getattr(expr, "tag", "") == "Iex_Get" and expr.offset not in written_regs:
+                    if expr.offset in arg_offsets:
+                        used_arg_indices.add(arg_offsets.index(expr.offset))
+            if stag == "Ist_Put":
+                written_regs.add(stmt.offset)
+    except Exception:
+        pass
+
+    return [
+        {"index": idx, "name": f"arg{idx}", "type": "void *"}
+        for idx in sorted(used_arg_indices)
+    ]
+
+
+def _build_function_info(project, registry=None) -> list[dict]:
     """Extract function metadata from angr's knowledge base."""
     from .sinks import get_sink_functions
-    from .sources import INPUT_FUNCTIONS
+    from .sources import get_source_functions
 
-    known_callees = set(INPUT_FUNCTIONS.keys()) | get_sink_functions()
+    known_callees = get_source_functions(registry) | get_sink_functions(registry)
     kb_funcs = project.kb.functions
     main_obj = project.loader.main_object
 
     stub_map = _build_stub_map(project)
 
     exported = set()
-    for sym in main_obj.symbols:
-        if sym.is_export:
-            exported.add(sym.rebased_addr)
-
     export_names: dict[int, str] = {}
     for sym in main_obj.symbols:
         if sym.is_export and sym.rebased_addr:
+            exported.add(sym.rebased_addr)
             export_names[sym.rebased_addr] = _normalize_func_name(sym.name)
 
     func_name_map: dict[int, str] = {}
+    has_main = False
     for addr, func in kb_funcs.items():
         if addr in stub_map:
-            func_name_map[addr] = stub_map[addr]
+            cname = stub_map[addr]
         elif addr in export_names:
-            func_name_map[addr] = export_names[addr]
+            cname = export_names[addr]
         else:
-            func_name_map[addr] = _normalize_func_name(func.name)
+            cname = _normalize_func_name(func.name)
+        func_name_map[addr] = cname
+        if cname in ("main", "wmain") and not func.is_plt and not func.is_simprocedure:
+            has_main = True
+
+    is_shared_lib = not has_main
 
     results = []
     for addr, func in kb_funcs.items():
-        if func.is_simprocedure or func.is_plt:
+        if func.is_simprocedure or func.is_plt or addr in stub_map:
             continue
-        if len(func.graph) < 2:
+        if len(func.graph) < 1:
             continue
 
         clean_name = func_name_map.get(addr, func.name)
+        if clean_name.startswith("_") or clean_name in (
+            "start", "deregister_tm_clones", "register_tm_clones",
+            "frame_dummy", "call_weak_fn", "fini", "init",
+        ):
+            continue
 
         callsites = []
-        for site in func.get_call_sites():
-            target_addr = func.get_call_target(site)
+        for site_block in func.get_call_sites():
+            target_addr = func.get_call_target(site_block)
             if target_addr is not None and target_addr in kb_funcs:
-                callee_name = func_name_map.get(target_addr, kb_funcs[target_addr].name)
-                if callee_name in known_callees:
+                callee_raw = kb_funcs[target_addr].name
+                callee_canon = func_name_map.get(target_addr, _normalize_func_name(callee_raw))
+                if callee_canon in known_callees:
+                    call_ins_addr = site_block
+                    try:
+                        blk = project.factory.block(site_block)
+                        if blk.instruction_addrs:
+                            call_ins_addr = blk.instruction_addrs[-1]
+                    except Exception:
+                        pass
                     callsites.append({
-                        "address": site,
-                        "callee_name": callee_name,
+                        "address": call_ins_addr,
+                        "callee_name": callee_raw if "chk" in callee_raw else callee_canon,
                     })
+
+        is_exp = addr in exported
+        params = _infer_cli_params(project, func, clean_name, is_shared_lib and is_exp)
+
+        if not callsites and not params:
+            continue
 
         results.append({
             "func_addr": addr,
             "func_name": clean_name,
             "callsites": callsites,
-            "params": [],
-            "is_exported": addr in exported,
+            "params": params,
+            "is_exported": is_shared_lib and is_exp,
         })
     return results
 
 
-def cmd_scan(args):
-    import angr
-    from .engine import VulnHunterEngine
-
+def _prepare_engine_scan(binary_path: str) -> tuple[VulnHunterEngine, list[dict]]:
     engine = VulnHunterEngine()
-    engine.init(args.binary)
-
+    engine.init(binary_path)
     logger.info("Building CFG...")
-    engine.project.analyses.CFGFast(normalize=True, show_progressbar=False)
-    funcs = _build_function_info(engine.project)
+    engine.ensure_cfg()
+    funcs = _build_function_info(engine.project, registry=engine.rules)
     logger.info("Scanning %d functions...", len(funcs))
-
-    total_sources = 0
-    total_sinks = 0
-    for fi in funcs:
-        result = engine.scan_function(
-            func_addr=fi["func_addr"],
-            func_name=fi["func_name"],
-            callsites=fi["callsites"],
-            params=fi["params"],
-            is_exported=fi["is_exported"],
-        )
-        total_sources += result["sources_found"]
-        total_sinks += result["sinks_found"]
-
-    if args.json:
-        print(json.dumps({
-            "binary": args.binary,
-            "functions_scanned": len(funcs),
-            "sources": engine.get_sources(),
-            "sinks": engine.get_sinks(),
-        }, indent=2))
-    else:
-        print(f"Binary: {args.binary}")
-        print(f"Functions scanned: {len(funcs)}")
-        print(f"Sources found: {total_sources}")
-        print(f"Sinks found: {total_sinks}")
-        if total_sources:
-            print("\nSources:")
-            for s in engine.get_sources():
-                print(f"  [{s['source_type']}] {s['func_name']} @ {s['address']}: {s['description']}")
-        if total_sinks:
-            print("\nSinks:")
-            for s in engine.get_sinks():
-                print(f"  [{s['sink_type']}] {s['func_name']} @ {s['address']}: {s['callee_name']}() [{s['cwe']}]")
-
-
-def cmd_taint(args):
-    import angr
-    from .engine import VulnHunterEngine
-
-    engine = VulnHunterEngine()
-    engine.init(args.binary)
-
-    logger.info("Building CFG...")
-    engine.project.analyses.CFGFast(normalize=True, show_progressbar=False)
-    funcs = _build_function_info(engine.project)
-    logger.info("Scanning %d functions...", len(funcs))
-
     for fi in funcs:
         engine.scan_function(
             func_addr=fi["func_addr"],
@@ -190,7 +166,38 @@ def cmd_taint(args):
             params=fi["params"],
             is_exported=fi["is_exported"],
         )
+    return engine, funcs
 
+
+def cmd_scan(args):
+    engine, funcs = _prepare_engine_scan(args.binary)
+    sources = engine.get_sources()
+    sinks = engine.get_sinks()
+
+    if args.json:
+        print(json.dumps({
+            "binary": args.binary,
+            "functions_scanned": len(funcs),
+            "sources": sources,
+            "sinks": sinks,
+        }, indent=2))
+    else:
+        print(f"Binary: {args.binary}")
+        print(f"Functions scanned: {len(funcs)}")
+        print(f"Sources found: {len(sources)}")
+        print(f"Sinks found: {len(sinks)}")
+        if sources:
+            print("\nSources:")
+            for s in sources:
+                print(f"  [{s['source_type']}] {s['func_name']} @ {s['address']}: {s['description']}")
+        if sinks:
+            print("\nSinks:")
+            for s in sinks:
+                print(f"  [{s['sink_type']}] {s['func_name']} @ {s['address']}: {s['callee_name']}() [{s['cwe']}]")
+
+
+def cmd_taint(args):
+    engine, _ = _prepare_engine_scan(args.binary)
     logger.info("Running taint analysis (depth=%d)...", args.depth)
     result = engine.analyze_taint(max_depth=args.depth)
     findings = result["findings"]
@@ -204,7 +211,8 @@ def cmd_taint(args):
             print()
             for f in findings:
                 sev = f["severity"].upper()
-                print(f"  [{sev}] {f['cwe']} — {f['title']}")
+                conf = f.get("confidence", "medium").upper()
+                print(f"  [{sev} | conf:{conf}] {f['cwe']} — {f['title']}")
                 print(f"         {f['description']}")
                 tp = f["taint_path"]
                 print(f"         Path: {' → '.join(tp['path_funcs'])} ({tp['path_length']} nodes)")
@@ -214,26 +222,7 @@ def cmd_taint(args):
 
 
 def cmd_report(args):
-    import angr
-    from .engine import VulnHunterEngine
-
-    engine = VulnHunterEngine()
-    engine.init(args.binary)
-
-    logger.info("Building CFG...")
-    engine.project.analyses.CFGFast(normalize=True, show_progressbar=False)
-    funcs = _build_function_info(engine.project)
-    logger.info("Scanning %d functions...", len(funcs))
-
-    for fi in funcs:
-        engine.scan_function(
-            func_addr=fi["func_addr"],
-            func_name=fi["func_name"],
-            callsites=fi["callsites"],
-            params=fi["params"],
-            is_exported=fi["is_exported"],
-        )
-
+    engine, funcs = _prepare_engine_scan(args.binary)
     logger.info("Running taint analysis...")
     result = engine.analyze_taint(max_depth=args.depth)
     findings = result["findings"]
@@ -241,6 +230,7 @@ def cmd_report(args):
     report = {
         "binary": args.binary,
         "arch": engine.project.arch.name,
+        "base_addr": hex(engine.base_addr) if engine.base_addr is not None else None,
         "functions_scanned": len(funcs),
         "total_sources": result["total_sources"],
         "total_sinks": result["total_sinks"],
@@ -271,7 +261,8 @@ def cmd_report(args):
         if findings:
             for i, f in enumerate(findings, 1):
                 sev = f["severity"].upper()
-                print(f"\n#{i} [{sev}] {f['cwe']} — {f['title']}")
+                conf = f.get("confidence", "medium").upper()
+                print(f"\n#{i} [{sev} | {conf}] {f['cwe']} — {f['title']}")
                 print(f"   {f['description']}")
                 tp = f["taint_path"]
                 src = tp["source"]

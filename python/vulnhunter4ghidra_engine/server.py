@@ -16,7 +16,18 @@ logging.basicConfig(
 logger = logging.getLogger("vulnhunter4ghidra")
 
 HANDLERS = {
-    "init": lambda eng, p: eng.init(p["binary_path"]),
+    "init": lambda eng, p: eng.init(p["binary_path"], base_addr=p.get("base_addr")),
+    "clear_scan": lambda eng, p: eng.clear_scan(),
+    "cancel": lambda eng, p: eng.cancel(),
+    "load_rules": lambda eng, p: eng.load_rules(p["path"]),
+    "mark_custom": lambda eng, p: eng.mark_custom_node(
+        role=p["role"],
+        func_name=p.get("func_name"),
+        address=int(p["address"], 16) if isinstance(p.get("address"), str) else p.get("address"),
+        cwe=p.get("cwe", "CWE-120"),
+        sink_type=p.get("sink_type", "buffer_overflow"),
+        vulnerable_arg_index=int(p.get("vulnerable_arg_index", 0)),
+    ),
     "scan_function": lambda eng, p: eng.scan_function(
         func_addr=int(p["func_addr"], 16) if isinstance(p["func_addr"], str) else p["func_addr"],
         func_name=p["func_name"],
