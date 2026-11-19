@@ -12,7 +12,26 @@ requires-python = ">=3.10"
 dependencies = [
     "angr>=9.2",
 ]
-keywords = ["ghidra", "binary-analysis", "taint-analysis", "cwe", "sarif", "static-analysis"]
+keywords = [
+    "ghidra",
+    "ghidra-plugin",
+    "binary-analysis",
+    "taint-analysis",
+    "vulnerability-scanner",
+    "reverse-engineering",
+    "angr",
+    "z3",
+    "pcode",
+    "cwe",
+    "sarif",
+    "static-analysis",
+    "firmware-security",
+]
+
+[project.urls]
+Homepage = "https://overkazaf.github.io/VulnHunter4Ghidra/"
+Documentation = "https://overkazaf.github.io/VulnHunter4Ghidra/"
+Repository = "https://github.com/overkazaf/VulnHunter4Ghidra"
 
 [project.scripts]
 vulnhunter = "vulnhunter4ghidra_engine.cli:main"

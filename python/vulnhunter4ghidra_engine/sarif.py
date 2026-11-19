@@ -213,7 +213,7 @@ def findings_to_sarif(
                     "driver": {
                         "name": "VulnHunter4Ghidra",
                         "version": TOOL_VERSION,
-                        "informationUri": "https://github.com/vulnhunter4ghidra/VulnHunter4Ghidra",
+                        "informationUri": "https://overkazaf.github.io/VulnHunter4Ghidra/",
                         "rules": rules,
                     }
                 },
