@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "vulnhunter4ghidra"
+version = "2.0.0"
+description = "Interactive binary CWE & taint vulnerability scanner for Ghidra and CI/CD pipelines"
+readme = "README.md"
+license = { text = "Apache-2.0" }
+requires-python = ">=3.10"
+dependencies = [
+    "angr>=9.2",
+]
+keywords = ["ghidra", "binary-analysis", "taint-analysis", "cwe", "sarif", "static-analysis"]
+
+[project.scripts]
+vulnhunter = "vulnhunter4ghidra_engine.cli:main"
+
+[tool.setuptools]
+package-dir = { "" = "python" }
+
+[tool.setuptools.packages.find]
+where = ["python"]
+
+[tool.pytest.ini_options]
+testpaths = ["test"]
+pythonpath = ["python"]

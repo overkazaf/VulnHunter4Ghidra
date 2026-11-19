@@ -13,13 +13,18 @@ from .models import (
     classify_severity,
 )
 from .rules import RuleRegistry, canonical_func_name
+from .sarif import findings_to_sarif
 from .sinks import identify_sinks
 from .sources import (
     identify_argv_source,
     identify_sources_from_callsites,
     identify_sources_from_params,
 )
-from .taint import find_taint_paths_interprocedural, find_taint_paths_intraprocedural
+from .taint import (
+    collect_interprocedural_param_taints,
+    find_taint_paths_interprocedural,
+    find_taint_paths_intraprocedural,
+)
 from .verifier import verify_findings_batch
 
 logger = logging.getLogger("vulnhunter4ghidra")
@@ -223,17 +228,34 @@ class VulnHunterEngine:
                     all_paths.extend(paths)
 
             # Run stateful semantic detectors (CWE-415, CWE-416, CWE-476, CWE-190, stack OOB)
+            inter_param_taints = (
+                collect_interprocedural_param_taints(
+                    self.project, self._all_sources, max_depth=max_depth, registry=self.rules,
+                )
+                if func_filter is None
+                else {}
+            )
+            global_src_lookup = {s.address: s for s in self._all_sources}
             candidate_funcs = (
                 [func_filter]
                 if func_filter is not None
-                else sorted(set(self._scanned_funcs.keys()) | set(intra_by_func.keys()))
+                else sorted(
+                    set(self._scanned_funcs.keys())
+                    | set(intra_by_func.keys())
+                    | set(inter_param_taints.keys())
+                )
             )
             for f_addr in candidate_funcs:
                 if self._cancel_event.is_set():
                     break
                 f_sources = self._sources_by_func.get(f_addr, [])
                 sem_paths = detect_semantic_vulns_in_function(
-                    self.project, f_addr, f_sources, registry=self.rules,
+                    self.project,
+                    f_addr,
+                    f_sources,
+                    registry=self.rules,
+                    extra_param_taints=inter_param_taints.get(f_addr),
+                    global_source_lookup=global_src_lookup,
                 )
                 all_paths.extend(sem_paths)
 
@@ -346,6 +368,15 @@ class VulnHunterEngine:
     def get_findings(self) -> list[dict]:
         with self._lock:
             return [f.to_dict() for f in self._findings]
+
+    def export_sarif(self) -> dict:
+        with self._lock:
+            arch = self.project.arch.name if self.project is not None else None
+            return findings_to_sarif(
+                [f.to_dict() for f in self._findings],
+                binary_path=self.binary_path,
+                arch=arch,
+            )
 
     def get_sources(self) -> list[dict]:
         with self._lock:

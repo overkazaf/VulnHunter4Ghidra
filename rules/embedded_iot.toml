@@ -1,0 +1,56 @@
+# Sample custom Source / Sink / Sanitizer rule pack for embedded & IoT C/C++ firmware.
+# Usage:
+#   vulnhunter report ./firmware.elf --rules rules/embedded_iot.toml --format sarif
+
+sanitizers = [
+    "safe_strlcpy",
+    "cgi_escape_shell",
+    "validate_packet_bounds",
+]
+
+[[sources]]
+name = "nvram_get"
+source_type = "env"
+taints_return = true
+tainted_out_args = []
+
+[[sources]]
+name = "uci_lookup_ptr"
+source_type = "env"
+taints_return = true
+tainted_out_args = [1]
+
+[[sources]]
+name = "httpd_recv_body"
+source_type = "recv"
+taints_return = true
+tainted_out_args = [1]
+
+[[sources]]
+name = "uart_read_frame"
+source_type = "read"
+taints_return = true
+tainted_out_args = [0]
+
+[[sinks]]
+name = "doSystemCmd"
+sink_type = "command_injection"
+cwe = "CWE-78"
+vulnerable_arg_index = 0
+tainted_arg_indices = [0, 1]
+requires_non_const_arg = 0
+
+[[sinks]]
+name = "twsystem"
+sink_type = "command_injection"
+cwe = "CWE-78"
+vulnerable_arg_index = 0
+tainted_arg_indices = [0]
+requires_non_const_arg = 0
+
+[[sinks]]
+name = "os_memcpy_unchecked"
+sink_type = "buffer_overflow"
+cwe = "CWE-120"
+vulnerable_arg_index = 0
+tainted_arg_indices = [1, 2]

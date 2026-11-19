@@ -10,27 +10,27 @@ VulnHunter4Ghidra 通过追踪用户输入（Source）到危险函数调用（Si
 
 ## 核心特性
 
-- **Source-Sink 污点分析** — 从 `recv`、`read`、`fgets`、`scanf`、`argv` 及函数参数追踪数据流至 `memcpy`、`strcpy`、`sprintf`、`system`、`free` 等危险函数
-- **CWE 漏洞分类** — 将每条告警映射至标准 CWE 编号（CWE-120 缓冲区溢出、CWE-134 格式化字符串、CWE-78 命令注入、CWE-416 释放后重用等）并标注严重级别
-- **过程内与过程间分析** — 支持函数内控制流污点追踪，以及可配置深度的跨函数调用链分析
-- **支持 20+ 种架构** — 继承 Ghidra 的架构支持：x86、x64、ARM、MIPS、PowerPC、RISC-V 等
-- **双模式运行** — 既支持 Ghidra 交互式图形界面插件，也支持无头独立 CLI（适用于 CI/CD）
-- **JSON 结构化输出** — 生成便于自动化流水线解析的漏洞报告
+- **VEX IR 寄存器与栈槽级污点分析** — 精确追踪寄存器、栈缓冲区偏移与跨函数实参的数据流传播，自动过滤只读段常量格式化字符串/固定命令字面量与安全边界内的定长栈拷贝，大幅消除误报
+- **有状态指针生命周期与整数溢出检测器** — 内置针对释放后重用（`CWE-416`，识别 `p = NULL`/重分配消解）、双重释放（`CWE-415`）、未判空解引用（`CWE-476`）、整数溢出流入分配/拷贝长度（`CWE-190`）以及定长栈越界写入（`CWE-120`）的语义状态机
+- **Z3 符号可达性验证** — 支持有界符号执行（`--verify`）验证路径约束可满足性，自动剪除互斥死分支（Dead Path）假阳性
+- **专业级 Ghidra 逆向工作台** — 可停靠 Findings / Sources / Sinks 表格面板、Taint Path 步进树一键联动跳转、`ColorizingService` 路径染色、后台可取消 `Task` 进度条，以及基于 Ghidra `Bookmark` 的审计状态（Confirmed / False Positive）持久化
+- **可扩展规则库** — 支持加载外部 `.toml` / `.json` 规则包（内置 `rules/embedded_iot.toml` 固件规则示例），或直接在 Ghidra 右键标注自定义 Source / Sink / Sanitizer
+- **SARIF 2.1.0 与增量基线门禁** — 原生导出带 `codeFlows` 的 OASIS SARIF 2.1.0 报告（无缝对接 GitHub Code Scanning 与 DefectDojo），支持 `--baseline` 存量基线差分与 `--fail-on` 门禁阈值
 
 ## 架构设计
 
 ```
-┌────────────────────┐     JSON-line TCP      ┌─────────────────────┐
-│   Ghidra 插件      │◄──────────────────────►│   Python 引擎       │
-│   (Java)           │      port 13372        │   (angr + Z3)       │
-│                    │                        │                     │
-│  • ScanVulnsAction │                        │  • CFG 分析         │
-│  • AnalyzeTaint    │                        │  • Source/Sink 识别 │
-│  • 结果展示        │                        │  • 污点传播分析     │
-└────────────────────┘                        └─────────────────────┘
+┌──────────────────────────┐   鉴权 JSON-line stdio 管道  ┌──────────────────────────┐
+│   Ghidra 工作台 (Java)   │◄────────────────────────────►│   Python 分析引擎        │
+│                          │      按实例隔离，零端口冲突  │   (angr VEX + Z3)        │
+│  • VulnHunterProvider UI │                              │  • VEX 数据流污点引擎    │
+│  • TaintPathHighlighter  │                              │  • 指针生命周期状态机    │
+│  • 后台可取消 Task       │                              │  • Z3 路径可行性验证     │
+│  • Bookmark 审计持久化   │                              │  • SARIF 2.1.0 & 规则库  │
+└──────────────────────────┘                              └──────────────────────────┘
 ```
 
-Java 端从 Ghidra 程序模型中提取函数元数据（调用点、参数、导出符号），通过基于 JSON-line 的 TCP 协议发送给 Python 引擎。引擎使用 [angr](https://angr.io/) 进行控制流图（CFG）构建与数据流分析，并支持基于 Z3 的可达性符号验证（规划中）。
+Java 端自动将 Ghidra 程序的加载基址（`getImageBase()`）同步至 Python 引擎，并通过带一次性会话 Token 鉴权的独立 `stdio` 管道通信（彻底消除多实例端口冲突与本地端口未授权访问风险）。引擎基于 VEX IR 执行寄存器/栈数据流传播、生命周期状态机检测及可选的 Z3 路径约束验证。
 
 ## 安装指南
 
@@ -80,14 +80,23 @@ python -c "import angr; print(angr.__version__)"
 Python 引擎支持脱离 Ghidra 独立运行，方便接入 CI/CD 流水线：
 
 ```bash
-# 快速扫描：识别 Source 与 Sink
-python -m vulnhunter4ghidra_engine.cli scan ./target_binary
+# 开发模式安装（注册 `vulnhunter` 命令行入口）
+pip install -e .
 
-# 完整污点分析（默认深度：5）
-python -m vulnhunter4ghidra_engine.cli taint ./target_binary --depth 8
+# 快速扫描：识别 Source 与 Sink（可加载自定义固件/业务规则包）
+vulnhunter scan ./target_binary --rules rules/embedded_iot.toml
 
-# 生成面向 CI/CD 的 JSON 格式完整报告
-python -m vulnhunter4ghidra_engine.cli report ./target_binary --json
+# 完整污点与生命周期分析 + Z3 符号可行性验证
+vulnhunter taint ./target_binary --depth 8 --verify
+
+# 生成符合 GitHub Code Scanning / DefectDojo 标准的 SARIF 2.1.0 报告
+vulnhunter report ./target_binary --verify --format sarif -o vulnhunter.sarif
+
+# 增量基线门禁：屏蔽存量基线告警，仅在新增 High/Critical 漏洞时返回退出码 1 阻断流水线
+vulnhunter report ./target_binary --baseline baseline.sarif --fail-on high --json
+
+# 运行内置 7 类 CWE 准确率/召回率基准评测（Juliet 风格对照组）
+python -m benchmark.run_benchmark
 ```
 
 **退出码说明**（便于 CI 集成）：

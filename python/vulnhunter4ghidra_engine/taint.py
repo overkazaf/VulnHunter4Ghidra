@@ -989,6 +989,79 @@ def _verify_interprocedural_chain_vex(
     return confirmed
 
 
+def collect_interprocedural_param_taints(
+    project,
+    sources: list[Source],
+    max_depth: int = 5,
+    registry: RuleRegistry | None = None,
+) -> dict[int, dict[int, frozenset[int]]]:
+    """Propagate tainted call arguments across the callgraph up to `max_depth`.
+
+    Returns:
+        {callee_func_addr: {param_index: frozenset(source_addrs)}}
+    """
+    if not sources or not _is_real_angr_project(project):
+        return {}
+
+    source_funcs: dict[int, list[Source]] = {}
+    for s in sources:
+        source_funcs.setdefault(s.func_addr, []).append(s)
+
+    propagated: dict[int, dict[int, set[int]]] = {}
+    frontier: list[tuple[int, int]] = [(faddr, 0) for faddr in source_funcs]
+    visited_depth: dict[int, int] = {}
+
+    while frontier:
+        cur_addr, depth = frontier.pop(0)
+        if depth >= max_depth:
+            continue
+        prev_d = visited_depth.get(cur_addr)
+        if prev_d is not None and prev_d <= depth:
+            continue
+        visited_depth[cur_addr] = depth
+
+        cur_func = project.kb.functions.get(cur_addr)
+        if cur_func is None:
+            continue
+
+        in_params = {
+            k: frozenset(v) for k, v in propagated.get(cur_addr, {}).items()
+        }
+        call_obs, _ = _analyze_function_vex(
+            project,
+            cur_func,
+            source_funcs.get(cur_addr, []),
+            extra_param_taints=in_params or None,
+            registry=registry,
+        )
+
+        for site_block in cur_func.get_call_sites():
+            target_addr = cur_func.get_call_target(site_block)
+            if target_addr is None or target_addr not in project.kb.functions:
+                continue
+            callee_fn = project.kb.functions[target_addr]
+            if callee_fn.is_plt or callee_fn.is_simprocedure:
+                continue
+            obs = call_obs.get(site_block)
+            if obs is None:
+                continue
+            added = False
+            for p_idx, tset in enumerate(obs.arg_taints):
+                if tset:
+                    cur_set = propagated.setdefault(target_addr, {}).setdefault(p_idx, set())
+                    before = len(cur_set)
+                    cur_set.update(tset)
+                    if len(cur_set) > before:
+                        added = True
+            if added:
+                frontier.append((target_addr, depth + 1))
+
+    return {
+        faddr: {p_idx: frozenset(origins) for p_idx, origins in pmap.items()}
+        for faddr, pmap in propagated.items()
+    }
+
+
 def _find_nearest_node(node_map, addr, graph):
     if addr in node_map:
         return node_map[addr]

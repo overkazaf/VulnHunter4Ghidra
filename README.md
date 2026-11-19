@@ -10,27 +10,27 @@ VulnHunter4Ghidra finds vulnerabilities in compiled binaries (ELF, PE, Mach-O) b
 
 ## Key Features
 
-- **Source-Sink Taint Analysis** — traces data flow from `recv`, `read`, `fgets`, `scanf`, `argv`, and function parameters to dangerous sinks like `memcpy`, `strcpy`, `sprintf`, `system`, and `free`
-- **CWE Classification** — maps each finding to a CWE ID (CWE-120 Buffer Overflow, CWE-134 Format String, CWE-78 Command Injection, CWE-416 Use-After-Free, etc.) with severity levels
-- **Intra & Inter-procedural Analysis** — tracks taint within functions and across call boundaries up to configurable depth
-- **20+ Architecture Support** — inherits Ghidra's architecture support: x86, x64, ARM, MIPS, PowerPC, RISC-V, and more
-- **Dual Mode** — Ghidra plugin (interactive GUI) or standalone CLI (headless, CI/CD-ready)
-- **JSON Output** — machine-parseable findings for pipeline integration
+- **VEX IR Data-Flow Taint Analysis** — tracks register, stack-slot, and buffer taint from `recv`, `read`, `fgets`, `scanf`, `getenv`, `argv`, and library entry parameters to dangerous sinks while filtering read-only constant format/command literals and bounded stack copies
+- **Stateful Pointer & Arithmetic CWE Detectors** — dedicated VEX state machines for Use-After-Free (`CWE-416`), Double Free (`CWE-415`), Unchecked NULL Dereference (`CWE-476`), Integer Overflow to Allocation/Copy (`CWE-190`), and Stack Frame OOB Write (`CWE-120`)
+- **Z3 Symbolic Feasibility Verification** — bounded symbolic reachability (`--verify`) confirms satisfiable path constraints and prunes contradictory dead branches
+- **Interactive Ghidra Workbench** — dockable Findings/Sources/Sinks tables, step-by-step Taint Path tree with one-click Listing/Decompiler navigation, `ColorizingService` path highlighting, background cancellable `Task` execution, and `Bookmark` triage persistence
+- **Extensible Rule Packs** — load custom `.toml` / `.json` Source, Sink, and Sanitizer rules (see `rules/embedded_iot.toml`) or mark custom nodes via right-click in Ghidra
+- **DevSecOps & SARIF 2.1.0 Ready** — exports OASIS SARIF 2.1.0 (`--format sarif`) with `codeFlows` for GitHub Code Scanning / DefectDojo, plus `--baseline` differential CI gating and `--fail-on` severity thresholds
 
 ## Architecture
 
 ```
-┌────────────────────┐     JSON-line TCP      ┌─────────────────────┐
-│   Ghidra Plugin    │◄──────────────────────►│   Python Engine     │
-│   (Java)           │      port 13372        │   (angr + Z3)       │
-│                    │                        │                     │
-│  • ScanVulnsAction │                        │  • CFG Analysis     │
-│  • AnalyzeTaint    │                        │  • Source/Sink ID   │
-│  • Result Display  │                        │  • Taint Propagation│
-└────────────────────┘                        └─────────────────────┘
+┌──────────────────────────┐   Authenticated JSON-line    ┌──────────────────────────┐
+│   Ghidra Workbench (Java)│◄────────────────────────────►│   Python Engine          │
+│                          │       stdio pipe (per-inst)  │   (angr VEX + Z3)        │
+│  • VulnHunterProvider UI │                              │  • VEX Data-Flow Taint   │
+│  • TaintPathHighlighter  │                              │  • Lifecycle Detectors   │
+│  • Background Tasks      │                              │  • Z3 Path Verifier      │
+│  • Bookmark Triage       │                              │  • SARIF 2.1.0 & Rules   │
+└──────────────────────────┘                              └──────────────────────────┘
 ```
 
-The Java side extracts function metadata (callsites, parameters, exports) from Ghidra's program model and sends it to the Python engine over a JSON-line TCP protocol. The engine uses [angr](https://angr.io/) for CFG construction and data-flow analysis, with optional Z3-based symbolic verification of reachability.
+The Java side aligns Ghidra's image base (`getImageBase()`) with the Python engine over an isolated, token-authenticated `stdio` JSON-line pipe (eliminating TCP port collisions and unauthorized local socket access). The engine performs VEX IR register/stack taint propagation, stateful pointer lifecycle checks, and optional bounded Z3 feasibility verification.
 
 ## Installation
 
@@ -80,14 +80,23 @@ The plugin automatically starts the Python engine and initializes it with the cu
 The Python engine runs independently without Ghidra, designed for CI/CD pipelines:
 
 ```bash
-# Quick scan: identify sources and sinks
-python -m vulnhunter4ghidra_engine.cli scan ./target_binary
+# Editable install (installs the `vulnhunter` CLI entry point)
+pip install -e .
 
-# Full taint analysis (default depth: 5)
-python -m vulnhunter4ghidra_engine.cli taint ./target_binary --depth 8
+# Quick scan: identify sources and sinks (with optional custom rules)
+vulnhunter scan ./target_binary --rules rules/embedded_iot.toml
 
-# Full report with JSON output for CI/CD
-python -m vulnhunter4ghidra_engine.cli report ./target_binary --json
+# Full taint + CWE lifecycle analysis with Z3 verification
+vulnhunter taint ./target_binary --depth 8 --verify
+
+# Export OASIS SARIF 2.1.0 for GitHub Code Scanning / VS Code SARIF Viewer
+vulnhunter report ./target_binary --verify --format sarif -o vulnhunter.sarif
+
+# Differential CI gate: suppress legacy baseline findings, fail only on new High/Critical issues
+vulnhunter report ./target_binary --baseline baseline.sarif --fail-on high --json
+
+# Run the 7-CWE Precision/Recall benchmark scorecard
+python -m benchmark.run_benchmark
 ```
 
 **Exit codes** (CI-friendly):

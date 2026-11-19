@@ -16,4 +16,5 @@ tasks.named('buildExtension') {
 	exclude '**/__pycache__/**'
 	exclude '**/.venv/**'
 	exclude '**/test/**'
+	exclude '**/benchmark/**'
 }

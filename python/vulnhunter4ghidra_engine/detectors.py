@@ -189,8 +189,10 @@ def detect_semantic_vulns_in_function(
     func_addr: int,
     sources: list[Source],
     registry: RuleRegistry | None = None,
+    extra_param_taints: dict[int, frozenset[int]] | None = None,
+    global_source_lookup: dict[int, Source] | None = None,
 ) -> list[TaintPath]:
-    """Run intra-procedural stateful detectors for CWE-415, CWE-416, CWE-476, CWE-190, and stack OOB."""
+    """Run stateful detectors for CWE-415, CWE-416, CWE-476, CWE-190, and stack OOB."""
     if not _is_real_angr_project(project):
         return []
 
@@ -216,7 +218,10 @@ def detect_semantic_vulns_in_function(
     if bp_offset is not None:
         init_state.regs[bp_offset] = PtrVal(stack_base="bp", stack_off=0)
 
-    source_by_addr = {s.address: s for s in sources}
+    source_by_addr = dict(global_source_lookup) if global_source_lookup else {}
+    for s in sources:
+        source_by_addr[s.address] = s
+
     source_by_call_addr: dict[int, list[Source]] = {}
     for s in sources:
         if s.source_type in (SourceType.FUNC_PARAM, SourceType.ARGV) and s.param_index is not None:
@@ -226,6 +231,17 @@ def detect_semantic_vulns_in_function(
                 init_state.regs[roff] = PtrVal(ptr_id=pid, taints=frozenset({s.address}))
         else:
             source_by_call_addr.setdefault(s.address, []).append(s)
+
+    if extra_param_taints:
+        for p_idx, tset in extra_param_taints.items():
+            if 0 <= p_idx < len(arg_offsets) and tset:
+                roff = arg_offsets[p_idx]
+                pid = f"param:{func.addr}:{p_idx}"
+                cur = init_state.regs.get(roff, PtrVal(ptr_id=pid))
+                init_state.regs[roff] = PtrVal(
+                    ptr_id=cur.ptr_id or pid,
+                    taints=cur.taints | frozenset(tset),
+                )
 
     call_targets: dict[int, str] = {}
     for site_block in func.get_call_sites():
@@ -253,6 +269,7 @@ def detect_semantic_vulns_in_function(
         if key in emitted_keys:
             return
         emitted_keys.add(key)
+        pfuncs = [func.name] if src.func_addr == func.addr else [src.func_name, func.name]
         results.append(TaintPath(
             source=src,
             sink=Sink(
@@ -265,7 +282,7 @@ def detect_semantic_vulns_in_function(
                 vulnerable_arg_index=vuln_arg,
             ),
             path_addrs=[src.address, sink_addr],
-            path_funcs=[func.name],
+            path_funcs=pfuncs,
             confidence=conf,
             evidence=[evidence_msg],
         ))
