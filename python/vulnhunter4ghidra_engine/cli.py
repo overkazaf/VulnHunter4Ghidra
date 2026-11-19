@@ -71,10 +71,16 @@ def _infer_cli_params(project, func, clean_name: str, treat_as_library_export: b
 
 def _build_function_info(project, registry=None) -> list[dict]:
     """Extract function metadata from angr's knowledge base."""
+    from .rules import ALLOCATOR_FUNCTIONS, DEALLOCATOR_FUNCTIONS
     from .sinks import get_sink_functions
     from .sources import get_source_functions
 
-    known_callees = get_source_functions(registry) | get_sink_functions(registry)
+    known_callees = (
+        get_source_functions(registry)
+        | get_sink_functions(registry)
+        | set(ALLOCATOR_FUNCTIONS.keys())
+        | set(DEALLOCATOR_FUNCTIONS.keys())
+    )
     kb_funcs = project.kb.functions
     main_obj = project.loader.main_object
 

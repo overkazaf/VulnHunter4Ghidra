@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import threading
 
+from .detectors import detect_semantic_vulns_in_function
 from .models import (
     Confidence,
     Sink,
@@ -19,6 +20,7 @@ from .sources import (
     identify_sources_from_params,
 )
 from .taint import find_taint_paths_interprocedural, find_taint_paths_intraprocedural
+from .verifier import verify_findings_batch
 
 logger = logging.getLogger("vulnhunter4ghidra")
 
@@ -56,8 +58,8 @@ def resolve_import_stubs(project) -> dict[int, str]:
             rebased = sym.rebased_addr
             if rebased in project.kb.functions:
                 fn = project.kb.functions[rebased]
-                if fn.name.startswith("sub_"):
-                    fn.name = sym.name
+                if fn.name.startswith("sub_") or fn.name in ("_start", "entry"):
+                    fn.name = canonical_func_name(sym.name) or sym.name
 
     return stub_map
 
@@ -71,6 +73,7 @@ class VulnHunterEngine:
         self._lock = threading.RLock()
         self._cancel_event = threading.Event()
         self._finding_counter = 0
+        self._scanned_funcs: dict[int, str] = {}
         self._sources_by_func: dict[int, list[Source]] = {}
         self._sinks_by_func: dict[int, list[Sink]] = {}
         self._all_sources: list[Source] = []
@@ -107,6 +110,7 @@ class VulnHunterEngine:
             self.binary_path = binary_path
             self.base_addr = self.project.loader.main_object.mapped_base
             self._finding_counter = 0
+            self._scanned_funcs = {}
             self._sources_by_func = {}
             self._sinks_by_func = {}
             self._all_sources = []
@@ -137,6 +141,7 @@ class VulnHunterEngine:
 
     def clear_scan(self) -> dict:
         with self._lock:
+            self._scanned_funcs.clear()
             self._sources_by_func.clear()
             self._sinks_by_func.clear()
             self._all_sources = []
@@ -164,6 +169,7 @@ class VulnHunterEngine:
 
             sinks = identify_sinks(func_addr, func_name, callsites, registry=self.rules)
 
+            self._scanned_funcs[func_addr] = func_name
             self._sources_by_func[func_addr] = sources
             self._sinks_by_func[func_addr] = sinks
             self._rebuild_flat_lists()
@@ -177,8 +183,13 @@ class VulnHunterEngine:
                 "sinks": [s.to_dict() for s in sinks],
             }
 
-    def analyze_taint(self, max_depth: int = 5, func_filter: int | None = None) -> dict:
-        """Run taint analysis across collected sources and sinks."""
+    def analyze_taint(
+        self,
+        max_depth: int = 5,
+        func_filter: int | None = None,
+        verify_symbolic: bool = False,
+    ) -> dict:
+        """Run VEX taint propagation, stateful CWE lifecycle detectors, and optional Z3 verification."""
         if self.project is None:
             raise RuntimeError("Binary not loaded — call init first")
 
@@ -211,6 +222,21 @@ class VulnHunterEngine:
                     )
                     all_paths.extend(paths)
 
+            # Run stateful semantic detectors (CWE-415, CWE-416, CWE-476, CWE-190, stack OOB)
+            candidate_funcs = (
+                [func_filter]
+                if func_filter is not None
+                else sorted(set(self._scanned_funcs.keys()) | set(intra_by_func.keys()))
+            )
+            for f_addr in candidate_funcs:
+                if self._cancel_event.is_set():
+                    break
+                f_sources = self._sources_by_func.get(f_addr, [])
+                sem_paths = detect_semantic_vulns_in_function(
+                    self.project, f_addr, f_sources, registry=self.rules,
+                )
+                all_paths.extend(sem_paths)
+
             if func_filter is None and not self._cancel_event.is_set():
                 inter_paths = find_taint_paths_interprocedural(
                     self.project,
@@ -229,35 +255,46 @@ class VulnHunterEngine:
                     seen.add(key)
                     unique_paths.append(p)
 
-            self._findings = []
+            raw_findings: list[VulnFinding] = []
             for path in unique_paths:
-                self._finding_counter += 1
                 cwe = path.sink.cwe
                 severity = classify_severity(cwe)
+                desc = (
+                    f"{path.source.description} -> {path.sink.callee_name}() at {hex(path.sink.address)}"
+                    if path.sink.sink_type.value in ("use_after_free", "double_free", "null_deref")
+                    else f"User-controlled data from {path.source.description} "
+                         f"flows to {path.sink.callee_name}() at {hex(path.sink.address)}"
+                )
                 finding = VulnFinding(
-                    finding_id=self._finding_counter,
+                    finding_id=0,
                     taint_path=path,
                     cwe=cwe,
                     severity=severity,
                     confidence=path.confidence,
                     title=f"{path.sink.sink_type.value}: {path.sink.callee_name} in {path.sink.func_name}",
-                    description=(
-                        f"User-controlled data from {path.source.description} "
-                        f"flows to {path.sink.callee_name}() at {hex(path.sink.address)}"
-                    ),
+                    description=desc,
                     evidence=list(path.evidence),
                 )
+                raw_findings.append(finding)
+
+            if verify_symbolic and raw_findings:
+                raw_findings = verify_findings_batch(self.project, raw_findings)
+
+            self._findings = []
+            for finding in raw_findings:
+                self._finding_counter += 1
+                finding.finding_id = self._finding_counter
                 self._findings.append(finding)
 
             logger.info(
-                "Taint analysis complete: %d paths, %d findings",
-                len(unique_paths), len(self._findings),
+                "Taint analysis complete: %d paths, %d findings (verify=%s)",
+                len(self._findings), len(self._findings), verify_symbolic,
             )
 
             return {
                 "total_sources": len(self._all_sources),
                 "total_sinks": len(self._all_sinks),
-                "taint_paths": len(unique_paths),
+                "taint_paths": len(self._findings),
                 "findings": [f.to_dict() for f in self._findings],
             }
 
