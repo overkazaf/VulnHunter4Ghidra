@@ -16,6 +16,7 @@ public class EngineProtocol {
 	public static class Command {
 		private final String type;
 		private final Map<String, Object> params;
+		private String token;
 
 		public Command(String type, Map<String, Object> params) {
 			this.type = type;
@@ -24,6 +25,8 @@ public class EngineProtocol {
 
 		public String getType() { return type; }
 		public Map<String, Object> getParams() { return params; }
+		public String getToken() { return token; }
+		public void setToken(String token) { this.token = token; }
 	}
 
 	public static class Response {
@@ -46,7 +49,8 @@ public class EngineProtocol {
 
 		public long getDataLong(String key, long defaultValue) {
 			if (data == null || !data.has(key)) return defaultValue;
-			return data.get(key).getAsLong();
+			JsonElement el = data.get(key);
+			return el.isJsonNull() ? defaultValue : el.getAsLong();
 		}
 
 		public boolean getDataBoolean(String key, boolean defaultValue) {
@@ -56,7 +60,7 @@ public class EngineProtocol {
 		}
 
 		public JsonArray getDataArray(String key) {
-			if (data == null || !data.has(key)) return null;
+			if (data == null || !data.has(key) || data.get(key).isJsonNull()) return null;
 			return data.getAsJsonArray(key);
 		}
 	}
@@ -67,6 +71,22 @@ public class EngineProtocol {
 
 	public static Response deserialize(String json) {
 		return GSON.fromJson(json, Response.class);
+	}
+
+	public static Command pingCmd() {
+		return new Command("ping", new HashMap<>());
+	}
+
+	public static Command shutdownCmd() {
+		return new Command("shutdown", new HashMap<>());
+	}
+
+	public static Command cancelCmd() {
+		return new Command("cancel", new HashMap<>());
+	}
+
+	public static Command clearScanCmd() {
+		return new Command("clear_scan", new HashMap<>());
 	}
 
 	public static Command initCmd(String binaryPath) {
@@ -82,28 +102,73 @@ public class EngineProtocol {
 		return new Command("init", params);
 	}
 
-	public static Command scanFunctionsCmd(String functionsJson) {
+	public static Command scanFunctionsCmd(JsonArray functions, boolean replace) {
 		Map<String, Object> params = new HashMap<>();
-		params.put("functions", GSON.fromJson(functionsJson, Object.class));
+		params.put("functions", functions);
+		params.put("replace", replace);
 		return new Command("scan_functions", params);
 	}
 
-	public static Command scanFunctionCmd(
-			String funcAddr, String funcName,
-			String callsitesJson, String paramsJson, boolean isExported) {
+	public static Command scanFunctionsCmd(String functionsJson) {
 		Map<String, Object> params = new HashMap<>();
-		params.put("func_addr", funcAddr);
-		params.put("func_name", funcName);
-		params.put("callsites", GSON.fromJson(callsitesJson, Object.class));
-		params.put("params", GSON.fromJson(paramsJson, Object.class));
-		params.put("is_exported", isExported);
+		params.put("functions", GSON.fromJson(functionsJson, Object.class));
+		params.put("replace", true);
+		return new Command("scan_functions", params);
+	}
+
+	public static Command scanFunctionCmd(JsonObject funcObj) {
+		Map<String, Object> params = new HashMap<>();
+		params.put("func_addr", funcObj.get("func_addr").getAsString());
+		params.put("func_name", funcObj.get("func_name").getAsString());
+		params.put("callsites", funcObj.getAsJsonArray("callsites"));
+		params.put("params", funcObj.getAsJsonArray("params"));
+		params.put("is_exported", funcObj.get("is_exported").getAsBoolean());
 		return new Command("scan_function", params);
 	}
 
 	public static Command analyzeTaintCmd(int maxDepth) {
+		return analyzeTaintCmd(maxDepth, null, false);
+	}
+
+	public static Command analyzeTaintCmd(int maxDepth, String funcAddrHex, boolean verify) {
 		Map<String, Object> params = new HashMap<>();
 		params.put("max_depth", maxDepth);
+		params.put("verify", verify);
+		if (funcAddrHex != null && !funcAddrHex.isBlank()) {
+			params.put("func_addr", funcAddrHex);
+		}
 		return new Command("analyze_taint", params);
+	}
+
+	public static Command markCustomCmd(
+			String role, String funcName, String addrHex,
+			String cwe, String sinkType, int vulnerableArgIndex) {
+		Map<String, Object> params = new HashMap<>();
+		params.put("role", role);
+		if (funcName != null && !funcName.isBlank()) {
+			params.put("func_name", funcName);
+		}
+		if (addrHex != null && !addrHex.isBlank()) {
+			params.put("address", addrHex);
+		}
+		if (cwe != null) {
+			params.put("cwe", cwe);
+		}
+		if (sinkType != null) {
+			params.put("sink_type", sinkType);
+		}
+		params.put("vulnerable_arg_index", vulnerableArgIndex);
+		return new Command("mark_custom", params);
+	}
+
+	public static Command loadRulesCmd(String rulesPath) {
+		Map<String, Object> params = new HashMap<>();
+		params.put("path", rulesPath);
+		return new Command("load_rules", params);
+	}
+
+	public static Command exportSarifCmd() {
+		return new Command("export_sarif", new HashMap<>());
 	}
 
 	public static Command getFindingsCmd() {

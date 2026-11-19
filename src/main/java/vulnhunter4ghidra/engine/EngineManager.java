@@ -1,8 +1,9 @@
 package vulnhunter4ghidra.engine;
 
 import java.io.*;
-import java.net.Socket;
 import java.nio.charset.StandardCharsets;
+import java.security.SecureRandom;
+import java.util.HexFormat;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -15,75 +16,104 @@ import ghidra.util.Msg;
 import vulnhunter4ghidra.engine.EngineProtocol.Command;
 import vulnhunter4ghidra.engine.EngineProtocol.Response;
 
+/**
+ * Manages the lifecycle and JSON-line stdio RPC channel of the dedicated Python
+ * analysis subprocess. Using per-instance stdio pipes avoids TCP port collisions
+ * across multiple Ghidra instances and prevents unauthorized local socket access.
+ */
 public class EngineManager {
 
-	private static final String HOST = "127.0.0.1";
-	private static final int PORT = 13372;
-	private static final int CONNECT_TIMEOUT_MS = 10000;
-	private static final int CONNECT_RETRY_DELAY_MS = 500;
-
 	private Process pythonProcess;
-	private Socket socket;
 	private BufferedWriter writer;
 	private BufferedReader reader;
+	private String sessionToken;
 	private final ExecutorService executor = Executors.newSingleThreadExecutor();
 	private volatile boolean running;
 
-	public void start() throws IOException {
-		if (running) {
+	public synchronized void start() throws IOException {
+		if (isRunning()) {
 			return;
 		}
+		stop();
 
 		String pythonPath = findPython();
 		String serverModule = findServerModule();
+		byte[] tokenBytes = new byte[16];
+		new SecureRandom().nextBytes(tokenBytes);
+		sessionToken = HexFormat.of().formatHex(tokenBytes);
 
 		ProcessBuilder pb = new ProcessBuilder(
-			pythonPath, "-m", "vulnhunter4ghidra_engine.server");
+			pythonPath, "-m", "vulnhunter4ghidra_engine.server",
+			"--stdio", "--auth-token", sessionToken);
 		pb.environment().put("PYTHONPATH", serverModule);
-		pb.redirectErrorStream(true);
+		pb.redirectErrorStream(false);
 		pythonProcess = pb.start();
 
-		startLogReader(pythonProcess.getInputStream());
-		connectWithRetry();
+		startLogReader(pythonProcess.getErrorStream());
+		writer = new BufferedWriter(
+			new OutputStreamWriter(pythonProcess.getOutputStream(), StandardCharsets.UTF_8));
+		reader = new BufferedReader(
+			new InputStreamReader(pythonProcess.getInputStream(), StandardCharsets.UTF_8));
 		running = true;
-		Msg.info(this, "VulnHunter4Ghidra engine started on port " + PORT);
+
+		Response ping = sendCommand(EngineProtocol.pingCmd());
+		if (!ping.isOk()) {
+			stop();
+			throw new IOException("Engine handshake failed: " + ping.getMessage());
+		}
+		Msg.info(this, "VulnHunter4Ghidra engine started (stdio session)");
 	}
 
-	public void stop() {
+	public synchronized void stop() {
+		if (running && writer != null) {
+			try {
+				Command shutdown = EngineProtocol.shutdownCmd();
+				shutdown.setToken(sessionToken);
+				writer.write(EngineProtocol.serialize(shutdown));
+				writer.newLine();
+				writer.flush();
+			}
+			catch (IOException ignored) {
+				// Process may have already exited
+			}
+		}
 		running = false;
-		closeSocket();
+		closeStreams();
 		if (pythonProcess != null && pythonProcess.isAlive()) {
 			pythonProcess.destroy();
 			try {
-				pythonProcess.waitFor(5, TimeUnit.SECONDS);
+				if (!pythonProcess.waitFor(3, TimeUnit.SECONDS)) {
+					pythonProcess.destroyForcibly();
+				}
 			}
 			catch (InterruptedException e) {
+				Thread.currentThread().interrupt();
 				pythonProcess.destroyForcibly();
 			}
 		}
 		pythonProcess = null;
-		Msg.info(this, "VulnHunter4Ghidra engine stopped");
+		sessionToken = null;
 	}
 
 	public boolean isRunning() {
-		return running && socket != null && socket.isConnected() && !socket.isClosed();
+		return running && pythonProcess != null && pythonProcess.isAlive()
+			&& writer != null && reader != null;
+	}
+
+	public void requestCancel() {
+		// Cancellation runs best-effort; if stdio lock is held by an active command,
+		// restarting the engine cleanly aborts long native analyses when cancelled by user.
+		if (!isRunning()) {
+			return;
+		}
+		if (pythonProcess != null && pythonProcess.isAlive()) {
+			Msg.warn(this, "Aborting active engine task on user cancellation");
+			stop();
+		}
 	}
 
 	public Response sendCommand(Command cmd) throws IOException {
-		if (!isRunning()) {
-			throw new IOException("Engine is not running");
-		}
-		String json = EngineProtocol.serialize(cmd);
-		synchronized (this) {
-			writer.write(json);
-			writer.newLine();
-			writer.flush();
-			String responseLine = reader.readLine();
-			if (responseLine == null) {
-				throw new IOException("Engine connection closed");
-			}
-			return EngineProtocol.deserialize(responseLine);
-		}
+		return sendCommandWithProgress(cmd, null);
 	}
 
 	public CompletableFuture<Response> sendCommandAsync(Command cmd) {
@@ -102,6 +132,7 @@ public class EngineManager {
 		if (!isRunning()) {
 			throw new IOException("Engine is not running");
 		}
+		cmd.setToken(sessionToken);
 		String json = EngineProtocol.serialize(cmd);
 		synchronized (this) {
 			writer.write(json);
@@ -110,7 +141,8 @@ public class EngineManager {
 			while (true) {
 				String responseLine = reader.readLine();
 				if (responseLine == null) {
-					throw new IOException("Engine connection closed");
+					running = false;
+					throw new IOException("Engine process closed connection");
 				}
 				Response resp = EngineProtocol.deserialize(responseLine);
 				if (resp.isProgress()) {
@@ -129,51 +161,23 @@ public class EngineManager {
 		executor.shutdownNow();
 	}
 
-	private void connectWithRetry() throws IOException {
-		long deadline = System.currentTimeMillis() + CONNECT_TIMEOUT_MS;
-		IOException lastException = null;
-
-		while (System.currentTimeMillis() < deadline) {
-			try {
-				socket = new Socket(HOST, PORT);
-				writer = new BufferedWriter(
-					new OutputStreamWriter(socket.getOutputStream(), StandardCharsets.UTF_8));
-				reader = new BufferedReader(
-					new InputStreamReader(socket.getInputStream(), StandardCharsets.UTF_8));
-				return;
-			}
-			catch (IOException e) {
-				lastException = e;
-				try {
-					Thread.sleep(CONNECT_RETRY_DELAY_MS);
-				}
-				catch (InterruptedException ie) {
-					Thread.currentThread().interrupt();
-					throw new IOException("Interrupted while connecting", ie);
-				}
-			}
-		}
-		throw new IOException("Failed to connect to engine after " + CONNECT_TIMEOUT_MS + "ms",
-			lastException);
-	}
-
-	private void closeSocket() {
+	private void closeStreams() {
 		try {
 			if (writer != null) writer.close();
+		}
+		catch (IOException ignored) {}
+		try {
 			if (reader != null) reader.close();
-			if (socket != null) socket.close();
 		}
-		catch (IOException e) {
-			Msg.warn(this, "Error closing engine connection", e);
-		}
+		catch (IOException ignored) {}
 		writer = null;
 		reader = null;
-		socket = null;
 	}
 
-	private void startLogReader(InputStream inputStream) {
+	private void startLogReader(InputStream errorStream) {
 		Thread logThread = new Thread(() -> {
-			try (BufferedReader br = new BufferedReader(new InputStreamReader(inputStream))) {
+			try (BufferedReader br = new BufferedReader(
+					new InputStreamReader(errorStream, StandardCharsets.UTF_8))) {
 				String line;
 				while ((line = br.readLine()) != null) {
 					Msg.info(this, "[vulnhunter] " + line);
@@ -181,7 +185,7 @@ public class EngineManager {
 			}
 			catch (IOException e) {
 				if (running) {
-					Msg.warn(this, "Engine log reader stopped", e);
+					Msg.warn(this, "Engine stderr reader stopped", e);
 				}
 			}
 		}, "VulnHunter4Ghidra-LogReader");
@@ -209,7 +213,7 @@ public class EngineManager {
 				dir = dir.getParentFile();
 			}
 		}
-		catch (Exception e) {
+		catch (Exception ignored) {
 			// fall through
 		}
 
@@ -222,7 +226,7 @@ public class EngineManager {
 					return candidate;
 				}
 			}
-			catch (Exception e) {
+			catch (Exception ignored) {
 				// try next
 			}
 		}

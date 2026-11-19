@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 class Command:
     type: str
     params: dict = field(default_factory=dict)
+    token: str | None = None
 
 
 @dataclass
@@ -25,7 +26,11 @@ class Response:
 
 def parse_command(line: str) -> Command:
     obj = json.loads(line)
-    return Command(type=obj["type"], params=obj.get("params", {}))
+    return Command(
+        type=obj["type"],
+        params=obj.get("params", {}),
+        token=obj.get("token"),
+    )
 
 
 def ok(data: dict | None = None) -> Response:
