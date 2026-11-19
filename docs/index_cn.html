@@ -1,0 +1,1239 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>VulnHunter4Ghidra — 双引擎混合二进制污点分析与漏洞挖掘工作台</title>
+  <meta name="description" content="融合 Ghidra High P-Code SSA 与 angr VEX/Z3 的原生二进制漏洞检测与污点分析工作台，原生支持 SARIF 2.1.0 与增量基线门禁。">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js" integrity="sha384-ZZ1pncU3bQe8y31yfZdMFdSpttDoPmOZg2wguVK9almUodir1PghgT0eY7Mrty8H" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.2/dist/jspdf.umd.min.js" integrity="sha384-en/ztfPSRkGfME4KIm05joYXynqzUgbsG5nMrj/xEFAHXkeZfO3yMK8QQ+mP7p1/" crossorigin="anonymous"></script>
+  <style>
+:root {
+  --bg: #f8fafc;
+  --bg-alt: #f1f5f9;
+  --card: #ffffff;
+  --border: #e2e8f0;
+  --border-strong: #cbd5e1;
+  --text: #0f172a;
+  --text-secondary: #334155;
+  --text-muted: #64748b;
+  --cyan: #0284c7;
+  --cyan-soft: rgba(14, 165, 233, 0.09);
+  --emerald: #059669;
+  --emerald-soft: rgba(16, 185, 129, 0.09);
+  --violet: #7c3aed;
+  --violet-soft: rgba(139, 92, 246, 0.09);
+  --amber: #d97706;
+  --amber-soft: rgba(245, 158, 11, 0.10);
+  --rose: #e11d48;
+  --rose-soft: rgba(244, 63, 94, 0.09);
+  --shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.04);
+  --shadow-md: 0 8px 24px rgba(15, 23, 42, 0.06);
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  line-height: 1.65;
+  -webkit-font-smoothing: antialiased;
+}
+code, pre, .mono {
+  font-family: 'JetBrains Mono', 'SFMono-Regular', Consolas, monospace;
+}
+
+/* Sticky Top Nav */
+.topbar {
+  position: sticky;
+  top: 0;
+  z-index: 50;
+  background: rgba(248, 250, 252, 0.88);
+  backdrop-filter: blur(10px);
+  border-bottom: 1px solid var(--border);
+}
+.topbar-inner {
+  max-width: 1180px;
+  margin: 0 auto;
+  padding: 0.75rem 1.5rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  font-weight: 800;
+  font-size: 1.02rem;
+  color: var(--text);
+  text-decoration: none;
+  letter-spacing: -0.02em;
+}
+.brand-ver {
+  font-size: 0.72rem;
+  font-weight: 600;
+  padding: 0.12rem 0.5rem;
+  border-radius: 999px;
+  background: var(--emerald-soft);
+  color: var(--emerald);
+  border: 1px solid rgba(5, 150, 105, 0.25);
+}
+.nav-links {
+  display: flex;
+  align-items: center;
+  gap: 1.25rem;
+  flex-wrap: wrap;
+}
+.nav-links a {
+  color: var(--text-secondary);
+  text-decoration: none;
+  font-size: 0.86rem;
+  font-weight: 500;
+  transition: color 0.15s;
+}
+.nav-links a:hover { color: var(--cyan); }
+.lang-btn {
+  padding: 0.32rem 0.75rem;
+  border-radius: 6px;
+  border: 1px solid var(--border-strong);
+  background: var(--card);
+  color: var(--text) !important;
+  font-weight: 600 !important;
+  font-size: 0.8rem !important;
+}
+.gh-btn {
+  padding: 0.36rem 0.85rem;
+  border-radius: 6px;
+  background: var(--text);
+  color: #ffffff !important;
+  font-weight: 600 !important;
+  font-size: 0.82rem !important;
+}
+
+.page-wrap {
+  max-width: 1180px;
+  margin: 0 auto;
+  padding: 0 1.5rem 4rem;
+}
+
+/* Hero */
+.hero {
+  padding: 4rem 0 2.75rem;
+  text-align: center;
+  background: radial-gradient(ellipse at 50% 0%, rgba(2, 132, 199, 0.07) 0%, transparent 68%);
+}
+.hero-eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.3rem 0.85rem;
+  border-radius: 999px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--cyan);
+  margin-bottom: 1.1rem;
+  box-shadow: var(--shadow-sm);
+}
+.hero h1 {
+  font-size: clamp(2.1rem, 4.4vw, 3.25rem);
+  font-weight: 800;
+  letter-spacing: -0.035em;
+  line-height: 1.15;
+  margin-bottom: 0.9rem;
+}
+.hero h1 span {
+  background: linear-gradient(135deg, #0284c7 0%, #059669 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+.hero-sub {
+  max-width: 760px;
+  margin: 0 auto 1.6rem;
+  color: var(--text-secondary);
+  font-size: 1.06rem;
+}
+.badge-row {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0.5rem;
+  margin-bottom: 1.8rem;
+}
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.3rem 0.75rem;
+  border-radius: 999px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  font-size: 0.78rem;
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+.pill-dot { width: 7px; height: 7px; border-radius: 50%; }
+.cta-row {
+  display: flex;
+  justify-content: center;
+  gap: 0.8rem;
+  flex-wrap: wrap;
+  margin-bottom: 2.5rem;
+}
+.btn-primary, .btn-secondary {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.68rem 1.4rem;
+  border-radius: 8px;
+  font-size: 0.9rem;
+  font-weight: 600;
+  text-decoration: none;
+  transition: transform 0.15s, box-shadow 0.15s;
+}
+.btn-primary {
+  background: var(--emerald);
+  color: #ffffff;
+  box-shadow: 0 4px 14px rgba(5, 150, 105, 0.22);
+}
+.btn-secondary {
+  background: var(--card);
+  color: var(--text);
+  border: 1px solid var(--border-strong);
+}
+.btn-primary:hover, .btn-secondary:hover { transform: translateY(-1px); }
+
+/* KPI Strip */
+.kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 1rem;
+  text-align: left;
+}
+.kpi-card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 1.15rem 1.3rem;
+  box-shadow: var(--shadow-sm);
+}
+.kpi-val {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 1.5rem;
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  margin-bottom: 0.2rem;
+}
+.kpi-label {
+  font-size: 0.84rem;
+  color: var(--text-muted);
+  font-weight: 500;
+}
+
+/* Section Headers */
+section { padding: 3.25rem 0 0.5rem; }
+.sec-head { margin-bottom: 1.5rem; }
+.sec-tag {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--cyan);
+  margin-bottom: 0.35rem;
+}
+.sec-head h2 {
+  font-size: 1.65rem;
+  font-weight: 800;
+  letter-spacing: -0.025em;
+  margin-bottom: 0.4rem;
+}
+.sec-head p {
+  color: var(--text-muted);
+  font-size: 0.95rem;
+  max-width: 820px;
+}
+
+/* Cocoon AI Light Architecture Card */
+.cocoon-shell {
+  background: var(--card);
+  border: 1px solid var(--border-strong);
+  border-radius: 16px;
+  padding: 1.5rem;
+  box-shadow: var(--shadow-md);
+}
+.cocoon-header {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 0.35rem;
+}
+.pulse-dot {
+  width: 11px;
+  height: 11px;
+  background: var(--emerald);
+  border-radius: 50%;
+  box-shadow: 0 0 0 4px rgba(5, 150, 105, 0.14);
+  animation: pulse 2s infinite;
+}
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.45; }
+}
+.cocoon-title {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: var(--text);
+}
+.cocoon-sub {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  margin-left: 1.45rem;
+  margin-bottom: 1.1rem;
+}
+.toolbar {
+  display: flex;
+  gap: 0.45rem;
+  margin-left: auto;
+  align-items: center;
+}
+.toolbar-toggle {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: 1.1rem;
+  line-height: 1;
+  padding: 0.28rem 0.55rem;
+  border-radius: 6px;
+}
+.toolbar-toggle:hover { background: var(--bg-alt); color: var(--text); }
+.toolbar-actions { display: none; gap: 0.4rem; }
+.toolbar.expanded .toolbar-actions { display: flex; }
+.toolbar-actions button {
+  background: var(--bg);
+  border: 1px solid var(--border-strong);
+  color: var(--text-secondary);
+  padding: 0.32rem 0.68rem;
+  border-radius: 6px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.74rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+.toolbar-actions button:hover { background: var(--text); color: #ffffff; border-color: var(--text); }
+
+.svg-viewport {
+  overflow-x: auto;
+  border-radius: 12px;
+}
+.svg-viewport svg {
+  width: 100%;
+  min-width: 940px;
+  height: auto;
+  display: block;
+}
+
+.cocoon-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(290px, 1fr));
+  gap: 1rem;
+  margin-top: 1.25rem;
+}
+.cocoon-card {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 1.1rem 1.2rem;
+}
+.cocoon-card-head {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.6rem;
+}
+.cocoon-card-head h3 {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.86rem;
+  font-weight: 700;
+}
+.cocoon-card ul {
+  list-style: none;
+  font-size: 0.82rem;
+  color: var(--text-secondary);
+}
+.cocoon-card li { margin-bottom: 0.36rem; }
+.cocoon-card code {
+  font-size: 0.76rem;
+  background: #ffffff;
+  border: 1px solid var(--border);
+  padding: 0.06rem 0.32rem;
+  border-radius: 4px;
+}
+
+/* Highlights Grid */
+.hl-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(330px, 1fr));
+  gap: 1.1rem;
+}
+.hl-card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 1.35rem 1.45rem;
+  box-shadow: var(--shadow-sm);
+}
+.hl-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.7rem;
+}
+.hl-icon {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.78rem;
+  font-weight: 700;
+  padding: 0.25rem 0.6rem;
+  border-radius: 6px;
+}
+.hl-metric {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.74rem;
+  color: var(--text-muted);
+}
+.hl-card h3 {
+  font-size: 1.02rem;
+  font-weight: 700;
+  margin-bottom: 0.45rem;
+}
+.hl-card p {
+  font-size: 0.88rem;
+  color: var(--text-secondary);
+}
+
+/* Pipeline Steps */
+.pipeline {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(195px, 1fr));
+  gap: 0.85rem;
+  margin-bottom: 1.5rem;
+}
+.pipe-step {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-top: 3px solid var(--cyan);
+  border-radius: 10px;
+  padding: 1rem 1.1rem;
+  box-shadow: var(--shadow-sm);
+}
+.pipe-num {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.73rem;
+  font-weight: 700;
+  color: var(--cyan);
+  margin-bottom: 0.25rem;
+}
+.pipe-step h4 { font-size: 0.92rem; font-weight: 700; margin-bottom: 0.3rem; }
+.pipe-step p { font-size: 0.81rem; color: var(--text-secondary); }
+
+/* Structured Tables */
+.table-card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  overflow-x: auto;
+  box-shadow: var(--shadow-sm);
+}
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.86rem;
+}
+th {
+  background: var(--bg-alt);
+  color: var(--text);
+  font-weight: 700;
+  text-align: left;
+  padding: 0.78rem 1rem;
+  border-bottom: 1px solid var(--border-strong);
+  white-space: nowrap;
+}
+td {
+  padding: 0.72rem 1rem;
+  border-bottom: 1px solid var(--border);
+  color: var(--text-secondary);
+  vertical-align: top;
+}
+tr:last-child td { border-bottom: none; }
+td code {
+  font-size: 0.79rem;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  padding: 0.08rem 0.35rem;
+  border-radius: 4px;
+  color: var(--text);
+}
+.tag-pass {
+  display: inline-block;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.76rem;
+  font-weight: 700;
+  padding: 0.12rem 0.5rem;
+  border-radius: 999px;
+  background: var(--emerald-soft);
+  color: var(--emerald);
+}
+
+/* Quick Start Split */
+.code-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+  gap: 1rem;
+}
+.code-panel {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow: var(--shadow-sm);
+}
+.code-panel-head {
+  padding: 0.65rem 1rem;
+  background: var(--bg-alt);
+  border-bottom: 1px solid var(--border);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: var(--text);
+}
+.code-panel pre {
+  padding: 1rem 1.15rem;
+  font-size: 0.8rem;
+  line-height: 1.65;
+  overflow-x: auto;
+  color: #1e293b;
+  background: #ffffff;
+}
+.code-panel .cm { color: #64748b; }
+.code-panel .kw { color: #0284c7; font-weight: 600; }
+
+footer {
+  margin-top: 4rem;
+  padding: 2rem 1.5rem;
+  border-top: 1px solid var(--border);
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 0.84rem;
+}
+footer a { color: var(--cyan); text-decoration: none; font-weight: 600; }
+
+@media print {
+  .topbar, .toolbar { display: none !important; }
+}
+</style>
+</head>
+<body>
+  <nav class="topbar">
+    <div class="topbar-inner">
+      <a class="brand" href="#">
+        <span>VulnHunter4Ghidra</span>
+        <span class="brand-ver">v2.0.0</span>
+      </a>
+      <div class="nav-links">
+        <a href="#architecture">系统架构图</a>
+        <a href="#highlights">核心亮点</a>
+        <a href="#modules">模块协作关系</a>
+        <a href="#benchmark">基准评测</a>
+        <a href="#quickstart">快速上手</a>
+        <a class="lang-btn" href="index.html">English</a>
+        <a class="gh-btn" href="https://github.com/overkazaf/VulnHunter4Ghidra">GitHub ↗</a>
+      </div>
+    </div>
+  </nav>
+
+  <main class="page-wrap">
+    <header class="hero">
+      <div class="hero-eyebrow">Ghidra 11.x 交互式逆向工作台 · SARIF 2.1.0 自动化安全门禁</div>
+      <h1>原生二进制精准污点分析与漏洞挖掘<br><span>Ghidra SSA 与 angr VEX/Z3 双核融合</span></h1>
+      <p class="hero-sub">
+        面向编译后的 <code>ELF</code>、<code>PE</code>、<code>Mach-O</code>、Android JNI <code>.so</code> 动态库及无符号裸机固件，精准检出内存越界、释放后重用（UAF）、双重释放、整数溢出与命令注入——既可在 Ghidra 内一键溯源染色，也可在 CI/CD 中执行零误报增量门禁。
+      </p>
+      <div class="badge-row">
+        <span class="pill"><span class="pill-dot" style="background:var(--emerald)"></span>High P-Code SSA + angr VEX 双引擎</span>
+        <span class="pill"><span class="pill-dot" style="background:var(--rose)"></span>Z3 符号可达性与死分支剪枝</span>
+        <span class="pill"><span class="pill-dot" style="background:var(--cyan)"></span>抗 -O2 尾调用与无栈帧优化</span>
+        <span class="pill"><span class="pill-dot" style="background:var(--violet)"></span>有状态 UAF / 双重释放 / 空指针检测</span>
+        <span class="pill"><span class="pill-dot" style="background:var(--amber)"></span>SARIF 2.1.0 与 --baseline 差分门禁</span>
+      </div>
+      <div class="cta-row">
+        <a class="btn-primary" href="#architecture">查看架构与模块全景</a>
+        <a class="btn-secondary" href="https://github.com/overkazaf/VulnHunter4Ghidra">访问 GitHub 仓库</a>
+      </div>
+
+      <div class="kpi-grid">
+        <div class="kpi-card">
+          <div class="kpi-val" style="color:var(--emerald)">100.0%</div>
+          <div class="kpi-label">7 类核心 CWE 在 <code>-O0</code> 与 <code>-O2</code> 下准确率与召回率双满分</div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-val" style="color:var(--cyan)">Dual-IR</div>
+          <div class="kpi-label">Ghidra <code>HighFunction</code> SSA 与 <code>angr</code> VEX 独立交叉印证提权</div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-val" style="color:var(--violet)">20+ 架构</div>
+          <div class="kpi-label">覆盖 x86_64、ARM64、MIPS、RISC-V 及各类 SLEIGH 单片机裸固件</div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-val" style="color:var(--amber)">SARIF 2.1</div>
+          <div class="kpi-label">内置完整 <code>codeFlows</code> 调用链与 SHA-256 存量基线差分门禁</div>
+        </div>
+      </div>
+    </header>
+
+    <!-- 1. COCOON AI 淡色系统架构图 -->
+    <section id="architecture">
+      <div class="sec-head">
+        <div class="sec-tag">01 / System Architecture</div>
+        <h2>全景分层架构与模块交互关系</h2>
+        <p>采用按实例隔离、带一次性 HMAC 令牌鉴权的 <code>stdio</code> JSON-line 管道连接 Java 逆向工作台与 Python 深度分析内核，彻底消除多实例端口冲突、C 扩展标准输出污染与 PIE 基址错位问题（右上角 <code>⋯</code> 支持一键复制高清图或导出 PNG / PDF）。</p>
+      </div>
+
+      <div class="cocoon-shell" id="report-container">
+        <div class="cocoon-header">
+          <div class="pulse-dot"></div>
+          <span class="cocoon-title">VulnHunter4Ghidra 双引擎混合系统架构图</span>
+          <div class="toolbar">
+            <div class="toolbar-actions">
+              <button onclick="copyAsImage(this)">📋 复制图片</button>
+              <button onclick="downloadPNG(this)">🖼️ 导出 PNG</button>
+              <button onclick="downloadPDF(this)">📄 导出 PDF</button>
+            </div>
+            <button class="toolbar-toggle" onclick="this.parentElement.classList.toggle('expanded')" title="导出架构图">⋯</button>
+          </div>
+        </div>
+        <p class="cocoon-sub">Ghidra High P-Code SSA (Java 端) ⇄ 鉴权隔离 stdio JSON-Line 管道 ⇄ angr VEX + 状态机 + Z3 SMT (Python 端)</p>
+
+        <div class="svg-viewport">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1120 724" role="img" aria-label="VulnHunter4Ghidra Architecture Diagram">
+  <defs>
+    <pattern id="vh-grid" width="36" height="36" patternUnits="userSpaceOnUse">
+      <path d="M 36 0 L 0 0 0 36" fill="none" stroke="#e2e8f0" stroke-width="0.8"/>
+    </pattern>
+    <marker id="arr-slate" markerWidth="9" markerHeight="7" refX="8" refY="3.5" orient="auto">
+      <polygon points="0 0, 9 3.5, 0 7" fill="#64748b"/>
+    </marker>
+    <marker id="arr-cyan" markerWidth="9" markerHeight="7" refX="8" refY="3.5" orient="auto">
+      <polygon points="0 0, 9 3.5, 0 7" fill="#0284c7"/>
+    </marker>
+    <marker id="arr-emerald" markerWidth="9" markerHeight="7" refX="8" refY="3.5" orient="auto">
+      <polygon points="0 0, 9 3.5, 0 7" fill="#059669"/>
+    </marker>
+    <marker id="arr-violet" markerWidth="9" markerHeight="7" refX="8" refY="3.5" orient="auto">
+      <polygon points="0 0, 9 3.5, 0 7" fill="#7c3aed"/>
+    </marker>
+    <marker id="arr-orange" markerWidth="9" markerHeight="7" refX="8" refY="3.5" orient="auto">
+      <polygon points="0 0, 9 3.5, 0 7" fill="#ea580c"/>
+    </marker>
+    <marker id="arr-rose" markerWidth="9" markerHeight="7" refX="8" refY="3.5" orient="auto">
+      <polygon points="0 0, 9 3.5, 0 7" fill="#e11d48"/>
+    </marker>
+    <marker id="arr-amber" markerWidth="9" markerHeight="7" refX="8" refY="3.5" orient="auto">
+      <polygon points="0 0, 9 3.5, 0 7" fill="#d97706"/>
+    </marker>
+  </defs>
+  <g font-family="'JetBrains Mono', 'SFMono-Regular', Consolas, monospace">
+    <rect width="1120" height="724" rx="12" fill="#f8fafc"/>
+    <rect width="1120" height="724" rx="12" fill="url(#vh-grid)"/>
+    <rect x="1" y="1" width="1118" height="722" rx="12" fill="none" stroke="#cbd5e1" stroke-width="1"/>
+
+    <!-- 1. REGION BOUNDARIES (drawn before connectors & boxes) -->
+    <rect x="224" y="28" width="668" height="264" rx="12" fill="rgba(2, 132, 199, 0.03)" stroke="#0284c7" stroke-width="1.2" stroke-dasharray="8,4"/>
+    <text x="240" y="49" fill="#0369a1" font-size="10" font-weight="700">GHIDRA 逆向工作台层 (JAVA 21 · 原生双引擎插件)</text>
+
+    <rect x="224" y="368" width="668" height="274" rx="12" fill="rgba(5, 150, 105, 0.03)" stroke="#059669" stroke-width="1.2" stroke-dasharray="8,4"/>
+    <text x="240" y="389" fill="#047857" font-size="10" font-weight="700">PYTHON 深度静态与符号执行引擎 (ANGR VEX IR · CLARIPY · Z3)</text>
+
+    <!-- 2. EARLY Z-ORDER ARROWS (masked cleanly behind opaque white component backings) -->
+    <!-- Binary Targets -> ProgramScanner/PCode & Python Engine -->
+    <path d="M 192 125 L 244 125" fill="none" stroke="#64748b" stroke-width="1.5" marker-end="url(#arr-slate)"/>
+    <path d="M 192 155 L 210 155 L 210 235 L 244 235" fill="none" stroke="#059669" stroke-width="1.5" marker-end="url(#arr-emerald)"/>
+    <path d="M 192 170 L 204 170 L 204 432 L 460 432" fill="none" stroke="#64748b" stroke-width="1.4" stroke-dasharray="4,3" marker-end="url(#arr-slate)"/>
+    <!-- Rule Packs -> PCode & rules.py -->
+    <path d="M 192 279 L 214 279 L 214 456 L 460 456" fill="none" stroke="#7c3aed" stroke-width="1.5" marker-end="url(#arr-violet)"/>
+    <path d="M 192 262 L 244 262" fill="none" stroke="#7c3aed" stroke-width="1.4" stroke-dasharray="4,3" marker-end="url(#arr-violet)"/>
+    <!-- CLI & Docker -> cli.py -->
+    <path d="M 192 487 L 244 487" fill="none" stroke="#0284c7" stroke-width="1.5" marker-end="url(#arr-cyan)"/>
+
+    <!-- Intra-Java Workbench flows -->
+    <line x1="460" y1="111" x2="440" y2="111" stroke="#0284c7" stroke-width="1.5" marker-end="url(#arr-cyan)"/>
+    <line x1="440" y1="95" x2="676" y2="95" stroke="#7c3aed" stroke-width="1.4" marker-end="url(#arr-violet)"/>
+    <line x1="558" y1="154" x2="774" y2="194" stroke="#0284c7" stroke-width="1.4" marker-end="url(#arr-cyan)"/>
+    <line x1="448" y1="235" x2="466" y2="235" stroke="#059669" stroke-width="1.6" marker-end="url(#arr-emerald)"/>
+    <line x1="676" y1="235" x2="658" y2="235" stroke="#e11d48" stroke-width="1.5" stroke-dasharray="4,3" marker-end="url(#arr-rose)"/>
+    <line x1="562" y1="194" x2="342" y2="154" stroke="#e11d48" stroke-width="1.6" marker-end="url(#arr-rose)"/>
+    <line x1="872" y1="111" x2="928" y2="111" stroke="#7c3aed" stroke-width="1.5" marker-end="url(#arr-violet)"/>
+
+    <!-- IPC Bus bidirectional flows (EngineManager <-> stdio Bus <-> server.py) -->
+    <path d="M 774 276 L 774 316" fill="none" stroke="#ea580c" stroke-width="1.8" marker-end="url(#arr-orange)"/>
+    <path d="M 520 344 L 342 344 L 342 404" fill="none" stroke="#ea580c" stroke-width="1.8" marker-end="url(#arr-orange)"/>
+    <path d="M 380 404 L 380 330 L 450 330" fill="none" stroke="#e11d48" stroke-width="1.4" stroke-dasharray="4,3" marker-end="url(#arr-rose)"/>
+
+    <!-- Intra-Python Engine flows -->
+    <line x1="440" y1="447" x2="460" y2="447" stroke="#0284c7" stroke-width="1.5" marker-end="url(#arr-cyan)"/>
+    <line x1="520" y1="490" x2="347" y2="532" stroke="#059669" stroke-width="1.5" marker-end="url(#arr-emerald)"/>
+    <line x1="558" y1="490" x2="562" y2="532" stroke="#059669" stroke-width="1.5" marker-end="url(#arr-emerald)"/>
+    <line x1="448" y1="578" x2="466" y2="578" stroke="#059669" stroke-width="1.5" marker-end="url(#arr-emerald)"/>
+    <line x1="658" y1="578" x2="676" y2="578" stroke="#e11d48" stroke-width="1.6" stroke-dasharray="4,3" marker-end="url(#arr-rose)"/>
+    <line x1="774" y1="532" x2="774" y2="490" stroke="#d97706" stroke-width="1.6" marker-end="url(#arr-amber)"/>
+    <line x1="656" y1="447" x2="676" y2="447" stroke="#d97706" stroke-width="1.5" marker-end="url(#arr-amber)"/>
+    <line x1="872" y1="447" x2="928" y2="447" stroke="#d97706" stroke-width="1.6" marker-end="url(#arr-amber)"/>
+    <path d="M 872 470 L 904 470 L 904 578 L 928 578" fill="none" stroke="#e11d48" stroke-width="1.5" stroke-dasharray="4,3" marker-end="url(#arr-rose)"/>
+
+    <!-- 3. INLINE IPC MESSAGE BUS (centered cleanly in gap y=292..368) -->
+    <rect x="450" y="316" width="422" height="28" rx="6" fill="#ffffff"/>
+    <rect x="450" y="316" width="422" height="28" rx="6" fill="rgba(249, 115, 22, 0.11)" stroke="#ea580c" stroke-width="1.5"/>
+    <text x="661" y="334" fill="#9a3412" font-size="9.5" font-weight="700" text-anchor="middle">stdio JSON-Line 隔离管道 · HMAC 令牌鉴权 · fd1→stderr 防污染</text>
+
+    <!-- 4. COMPONENT BOXES WITH OPAQUE WHITE MASKING -->
+    <rect x="24" y="96" width="168" height="86" rx="7" fill="#ffffff"/>
+    <rect x="24" y="96" width="168" height="86" rx="7" fill="rgba(100, 116, 139, 0.09)" stroke="#64748b" stroke-width="1.5"/>
+    <text x="108" y="116" fill="#0f172a" font-size="11" font-weight="700" text-anchor="middle">二进制分析目标</text>
+    <text x="108" y="133" fill="#475569" font-size="8.5" text-anchor="middle">ELF · PE · Mach-O</text>
+    <text x="108" y="147" fill="#475569" font-size="8.5" text-anchor="middle">Android JNI .so 库</text>
+    <text x="108" y="161" fill="#475569" font-size="8.5" text-anchor="middle">无符号裸机固件</text>
+    <text x="108" y="174" fill="#475569" font-size="7.8" font-weight="600" text-anchor="middle">20+ 架构</text>
+    <rect x="24" y="236" width="168" height="86" rx="7" fill="#ffffff"/>
+    <rect x="24" y="236" width="168" height="86" rx="7" fill="rgba(139, 92, 246, 0.09)" stroke="#7c3aed" stroke-width="1.5"/>
+    <text x="108" y="256" fill="#0f172a" font-size="11" font-weight="700" text-anchor="middle">可扩展规则包</text>
+    <text x="108" y="273" fill="#475569" font-size="8.5" text-anchor="middle">rules/*.toml · *.json</text>
+    <text x="108" y="287" fill="#475569" font-size="8.5" text-anchor="middle">POSIX · Win32 · IoT</text>
+    <text x="108" y="301" fill="#475569" font-size="8.5" text-anchor="middle">Source / Sink / Sanitizer</text>
+    <text x="108" y="314" fill="#6d28d9" font-size="7.8" font-weight="600" text-anchor="middle">热加载</text>
+    <rect x="24" y="444" width="168" height="86" rx="7" fill="#ffffff"/>
+    <rect x="24" y="444" width="168" height="86" rx="7" fill="rgba(14, 165, 233, 0.09)" stroke="#0284c7" stroke-width="1.5"/>
+    <text x="108" y="464" fill="#0f172a" font-size="11" font-weight="700" text-anchor="middle">CLI 与容器入口</text>
+    <text x="108" y="481" fill="#475569" font-size="8.5" text-anchor="middle">vulnhunter scan|taint</text>
+    <text x="108" y="495" fill="#475569" font-size="8.5" text-anchor="middle">vulnhunter report</text>
+    <text x="108" y="509" fill="#475569" font-size="8.5" text-anchor="middle">--verify --baseline</text>
+    <text x="108" y="522" fill="#0369a1" font-size="7.8" font-weight="600" text-anchor="middle">无头流水线</text>
+    <rect x="244" y="68" width="196" height="86" rx="7" fill="#ffffff"/>
+    <rect x="244" y="68" width="196" height="86" rx="7" fill="rgba(14, 165, 233, 0.09)" stroke="#0284c7" stroke-width="1.5"/>
+    <text x="342" y="88" fill="#0f172a" font-size="11" font-weight="700" text-anchor="middle">VulnHunterProvider</text>
+    <text x="342" y="105" fill="#475569" font-size="8.5" text-anchor="middle">告警 / 源 / 汇聚点三表</text>
+    <text x="342" y="119" fill="#475569" font-size="8.5" text-anchor="middle">污点步进树与多维过滤</text>
+    <text x="342" y="146" fill="#0369a1" font-size="7.8" font-weight="600" text-anchor="middle">可停靠工作台</text>
+    <rect x="460" y="68" width="196" height="86" rx="7" fill="#ffffff"/>
+    <rect x="460" y="68" width="196" height="86" rx="7" fill="rgba(14, 165, 233, 0.09)" stroke="#0284c7" stroke-width="1.5"/>
+    <text x="558" y="88" fill="#0f172a" font-size="11" font-weight="700" text-anchor="middle">ProgramScanner &amp; Tasks</text>
+    <text x="558" y="105" fill="#475569" font-size="8.5" text-anchor="middle">后台可取消异步 Task</text>
+    <text x="558" y="119" fill="#475569" font-size="8.5" text-anchor="middle">Thunk 与 -O2 尾调用提取</text>
+    <text x="558" y="146" fill="#0369a1" font-size="7.8" font-weight="600" text-anchor="middle">右键单函数/标注</text>
+    <rect x="676" y="68" width="196" height="86" rx="7" fill="#ffffff"/>
+    <rect x="676" y="68" width="196" height="86" rx="7" fill="rgba(139, 92, 246, 0.09)" stroke="#7c3aed" stroke-width="1.5"/>
+    <text x="774" y="88" fill="#0f172a" font-size="11" font-weight="700" text-anchor="middle">Highlighter &amp; Bookmarks</text>
+    <text x="774" y="105" fill="#475569" font-size="8.5" text-anchor="middle">反汇编/反编译三色联动</text>
+    <text x="774" y="119" fill="#475569" font-size="8.5" text-anchor="middle">Bookmark 审计状态持久化</text>
+    <text x="774" y="146" fill="#6d28d9" font-size="7.8" font-weight="600" text-anchor="middle">.gpr 持久化</text>
+    <rect x="244" y="194" width="204" height="82" rx="7" fill="#ffffff"/>
+    <rect x="244" y="194" width="204" height="82" rx="7" fill="rgba(16, 185, 129, 0.09)" stroke="#059669" stroke-width="1.5"/>
+    <text x="346" y="214" fill="#0f172a" font-size="11" font-weight="700" text-anchor="middle">PCodeTaintAnalyzer</text>
+    <text x="346" y="231" fill="#475569" font-size="8.5" text-anchor="middle">High P-Code SSA 数据流</text>
+    <text x="346" y="245" fill="#475569" font-size="8.5" text-anchor="middle">Phi 节点 + UAF/双重释放</text>
+    <text x="346" y="268" fill="#047857" font-size="7.8" font-weight="600" text-anchor="middle">原生引擎 #1 (零Python)</text>
+    <rect x="466" y="194" width="192" height="82" rx="7" fill="#ffffff"/>
+    <rect x="466" y="194" width="192" height="82" rx="7" fill="rgba(244, 63, 94, 0.09)" stroke="#e11d48" stroke-width="1.5"/>
+    <text x="562" y="214" fill="#0f172a" font-size="11" font-weight="700" text-anchor="middle">Hybrid 双引擎融合器</text>
+    <text x="562" y="231" fill="#475569" font-size="8.5" text-anchor="middle">SSA ∩ VEX 独立交叉印证</text>
+    <text x="562" y="245" fill="#475569" font-size="8.5" text-anchor="middle">裸固件无文件自动降级</text>
+    <text x="562" y="268" fill="#be123c" font-size="7.8" font-weight="600" text-anchor="middle">[HYBRID] 提权</text>
+    <rect x="676" y="194" width="196" height="82" rx="7" fill="#ffffff"/>
+    <rect x="676" y="194" width="196" height="82" rx="7" fill="rgba(14, 165, 233, 0.09)" stroke="#0284c7" stroke-width="1.5"/>
+    <text x="774" y="214" fill="#0f172a" font-size="11" font-weight="700" text-anchor="middle">EngineManager</text>
+    <text x="774" y="231" fill="#475569" font-size="8.5" text-anchor="middle">getImageBase() 基址对齐</text>
+    <text x="774" y="245" fill="#475569" font-size="8.5" text-anchor="middle">128-bit 随机鉴权令牌</text>
+    <text x="774" y="268" fill="#0369a1" font-size="7.8" font-weight="600" text-anchor="middle">实例级子进程</text>
+    <rect x="244" y="404" width="196" height="86" rx="7" fill="#ffffff"/>
+    <rect x="244" y="404" width="196" height="86" rx="7" fill="rgba(14, 165, 233, 0.09)" stroke="#0284c7" stroke-width="1.5"/>
+    <text x="342" y="424" fill="#0f172a" font-size="11" font-weight="700" text-anchor="middle">server.py &amp; cli.py</text>
+    <text x="342" y="441" fill="#475569" font-size="8.5" text-anchor="middle">HMAC 鉴权 stdio/TCP 服务</text>
+    <text x="342" y="455" fill="#475569" font-size="8.5" text-anchor="middle">增量扫描进度实时回传</text>
+    <text x="342" y="482" fill="#0369a1" font-size="7.8" font-weight="600" text-anchor="middle">通信与命令层</text>
+    <rect x="460" y="404" width="196" height="86" rx="7" fill="#ffffff"/>
+    <rect x="460" y="404" width="196" height="86" rx="7" fill="rgba(139, 92, 246, 0.09)" stroke="#7c3aed" stroke-width="1.5"/>
+    <text x="558" y="424" fill="#0f172a" font-size="11" font-weight="700" text-anchor="middle">engine.py &amp; rules.py</text>
+    <text x="558" y="441" fill="#475569" font-size="8.5" text-anchor="middle">PIE 对齐 + 单次 CFG 复用</text>
+    <text x="558" y="455" fill="#475569" font-size="8.5" text-anchor="middle">跨平台符号与 _chk 归一化</text>
+    <text x="558" y="482" fill="#6d28d9" font-size="7.8" font-weight="600" text-anchor="middle">编排与规则中心</text>
+    <rect x="676" y="404" width="196" height="86" rx="7" fill="#ffffff"/>
+    <rect x="676" y="404" width="196" height="86" rx="7" fill="rgba(245, 158, 11, 0.10)" stroke="#d97706" stroke-width="1.5"/>
+    <text x="774" y="424" fill="#0f172a" font-size="11" font-weight="700" text-anchor="middle">sarif.py &amp; Baseline</text>
+    <text x="774" y="441" fill="#475569" font-size="8.5" text-anchor="middle">SARIF 2.1.0 完整路径流</text>
+    <text x="774" y="455" fill="#475569" font-size="8.5" text-anchor="middle">SHA-256 基线差分去重</text>
+    <text x="774" y="482" fill="#b45309" font-size="7.8" font-weight="600" text-anchor="middle">存量告警过滤</text>
+    <rect x="244" y="532" width="204" height="92" rx="7" fill="#ffffff"/>
+    <rect x="244" y="532" width="204" height="92" rx="7" fill="rgba(16, 185, 129, 0.09)" stroke="#059669" stroke-width="1.5"/>
+    <text x="346" y="552" fill="#0f172a" font-size="11" font-weight="700" text-anchor="middle">taint.py (VEX IR)</text>
+    <text x="346" y="569" fill="#475569" font-size="8.5" text-anchor="middle">寄存器 + 统一 sp/bp 栈槽</text>
+    <text x="346" y="583" fill="#475569" font-size="8.5" text-anchor="middle">跨函数实参与 -O2 尾调用</text>
+    <text x="346" y="597" fill="#475569" font-size="8.5" text-anchor="middle">.rodata 常量与边界消解</text>
+    <text x="346" y="616" fill="#047857" font-size="7.8" font-weight="600" text-anchor="middle">原生引擎 #2A</text>
+    <rect x="466" y="532" width="192" height="92" rx="7" fill="#ffffff"/>
+    <rect x="466" y="532" width="192" height="92" rx="7" fill="rgba(16, 185, 129, 0.09)" stroke="#059669" stroke-width="1.5"/>
+    <text x="562" y="552" fill="#0f172a" font-size="11" font-weight="700" text-anchor="middle">detectors.py (Stateful)</text>
+    <text x="562" y="569" fill="#475569" font-size="8.5" text-anchor="middle">CWE-416 UAF · 415 双重释放</text>
+    <text x="562" y="583" fill="#475569" font-size="8.5" text-anchor="middle">CWE-476 分配未判空解引用</text>
+    <text x="562" y="597" fill="#475569" font-size="8.5" text-anchor="middle">CWE-190 整数溢出 · 栈越界</text>
+    <text x="562" y="616" fill="#047857" font-size="7.8" font-weight="600" text-anchor="middle">原生引擎 #2B</text>
+    <rect x="676" y="532" width="196" height="92" rx="7" fill="#ffffff"/>
+    <rect x="676" y="532" width="196" height="92" rx="7" fill="rgba(244, 63, 94, 0.09)" stroke="#e11d48" stroke-width="1.5"/>
+    <text x="774" y="552" fill="#0f172a" font-size="11" font-weight="700" text-anchor="middle">verifier.py (Z3 SMT)</text>
+    <text x="774" y="569" fill="#475569" font-size="8.5" text-anchor="middle">有界符号执行可达验证</text>
+    <text x="774" y="583" fill="#475569" font-size="8.5" text-anchor="middle">外部导入桩自动符号化</text>
+    <text x="774" y="597" fill="#475569" font-size="8.5" text-anchor="middle">互斥死分支 Unsat 剪枝</text>
+    <text x="774" y="616" fill="#be123c" font-size="7.8" font-weight="600" text-anchor="middle">Z3 约束验证</text>
+    <rect x="928" y="68" width="168" height="86" rx="7" fill="#ffffff"/>
+    <rect x="928" y="68" width="168" height="86" rx="7" fill="rgba(139, 92, 246, 0.09)" stroke="#7c3aed" stroke-width="1.5"/>
+    <text x="1012" y="88" fill="#0f172a" font-size="11" font-weight="700" text-anchor="middle">逆向审计闭环</text>
+    <text x="1012" y="105" fill="#475569" font-size="8.5" text-anchor="middle">反编译器一键跳转染色</text>
+    <text x="1012" y="119" fill="#475569" font-size="8.5" text-anchor="middle">团队项目书签持久化</text>
+    <text x="1012" y="146" fill="#6d28d9" font-size="7.8" font-weight="600" text-anchor="middle">交互式输出</text>
+    <rect x="928" y="404" width="168" height="86" rx="7" fill="#ffffff"/>
+    <rect x="928" y="404" width="168" height="86" rx="7" fill="rgba(245, 158, 11, 0.10)" stroke="#d97706" stroke-width="1.5"/>
+    <text x="1012" y="424" fill="#0f172a" font-size="11" font-weight="700" text-anchor="middle">安全平台集成</text>
+    <text x="1012" y="441" fill="#475569" font-size="8.5" text-anchor="middle">GitHub Code Scanning</text>
+    <text x="1012" y="455" fill="#475569" font-size="8.5" text-anchor="middle">DefectDojo / VS Code</text>
+    <text x="1012" y="482" fill="#b45309" font-size="7.8" font-weight="600" text-anchor="middle">SARIF 2.1.0</text>
+    <rect x="928" y="532" width="168" height="92" rx="7" fill="#ffffff"/>
+    <rect x="928" y="532" width="168" height="92" rx="7" fill="rgba(244, 63, 94, 0.09)" stroke="#e11d48" stroke-width="1.5"/>
+    <text x="1012" y="552" fill="#0f172a" font-size="11" font-weight="700" text-anchor="middle">CI 合入门禁</text>
+    <text x="1012" y="569" fill="#475569" font-size="8.5" text-anchor="middle">--fail-on high,critical</text>
+    <text x="1012" y="583" fill="#475569" font-size="8.5" text-anchor="middle">仅阻断新增高危回归</text>
+    <text x="1012" y="597" fill="#475569" font-size="8.5" text-anchor="middle">100% P/R (-O0 &amp; -O2)</text>
+    <text x="1012" y="616" fill="#be123c" font-size="7.8" font-weight="600" text-anchor="middle">零误报门禁</text>
+
+    <!-- 5. LEGEND (Placed strictly outside all region boundaries at y=672..706) -->
+    <rect x="24" y="668" width="1072" height="38" rx="8" fill="#ffffff" stroke="#e2e8f0" stroke-width="1"/>
+    <rect x="42" y="681" width="16" height="11" rx="2.5" fill="rgba(14, 165, 233, 0.09)" stroke="#0284c7" stroke-width="1.3"/>
+    <text x="64" y="690" fill="#334155" font-size="8.5" font-weight="500">UI / 接入与任务层</text>
+    <rect x="216" y="681" width="16" height="11" rx="2.5" fill="rgba(16, 185, 129, 0.09)" stroke="#059669" stroke-width="1.3"/>
+    <text x="238" y="690" fill="#334155" font-size="8.5" font-weight="500">双核静态分析引擎 (SSA + VEX)</text>
+    <rect x="390" y="681" width="16" height="11" rx="2.5" fill="rgba(139, 92, 246, 0.09)" stroke="#7c3aed" stroke-width="1.3"/>
+    <text x="412" y="690" fill="#334155" font-size="8.5" font-weight="500">IR / 规则库 / 书签状态</text>
+    <rect x="564" y="681" width="16" height="11" rx="2.5" fill="rgba(249, 115, 22, 0.11)" stroke="#ea580c" stroke-width="1.3"/>
+    <text x="586" y="690" fill="#334155" font-size="8.5" font-weight="500">stdio 隔离消息管道</text>
+    <rect x="738" y="681" width="16" height="11" rx="2.5" fill="rgba(244, 63, 94, 0.09)" stroke="#e11d48" stroke-width="1.3"/>
+    <text x="760" y="690" fill="#334155" font-size="8.5" font-weight="500">混合印证 / Z3 约束与安全门禁</text>
+    <rect x="912" y="681" width="16" height="11" rx="2.5" fill="rgba(245, 158, 11, 0.10)" stroke="#d97706" stroke-width="1.3"/>
+    <text x="934" y="690" fill="#334155" font-size="8.5" font-weight="500">SARIF 2.1.0 与平台集成</text>
+  </g>
+</svg>
+        </div>
+
+        <div class="cocoon-cards">
+          <div class="cocoon-card">
+            <div class="cocoon-card-head">
+              <span class="pill-dot" style="background:var(--cyan)"></span>
+              <h3>Ghidra 原生工作台层 (Java 21)</h3>
+            </div>
+            <ul>
+              <li>• <code>ProgramScanner</code> 在可取消后台 <code>Task</code> 中提取函数签名、Thunk 跳板及 <code>-O2</code> 尾调用跳转点。</li>
+              <li>• <code>PCodeTaintAnalyzer</code> 直接在反编译器 <code>HighFunction</code> SSA 图上追踪 <code>Varnode</code> Def-Use 与 Phi 节点，无需 Python 环境即可独立工作。</li>
+              <li>• <code>VulnHunterProvider</code> 与 <code>TaintPathHighlighter</code> 实现表格筛选、路径三色高亮及 <code>.gpr</code> 书签持久化。</li>
+            </ul>
+          </div>
+          <div class="cocoon-card">
+            <div class="cocoon-card-head">
+              <span class="pill-dot" style="background:var(--rose)"></span>
+              <h3>隔离通信管道与双引擎融合器</h3>
+            </div>
+            <ul>
+              <li>• <code>EngineManager</code> 为每个 Ghidra 实例拉起专属 <code>--stdio</code> 子进程并注入 128-bit 随机令牌，告别固定端口抢占。</li>
+              <li>• 底层执行 <code>fd 1 → stderr</code> 描述符重映射，防止 VEX/Unicorn/Z3 原生库输出破坏 JSON-line 协议帧。</li>
+              <li>• <code>Hybrid 融合器</code> 对 SSA 与 VEX 独立命中的同源漏洞自动标记 <code>[HYBRID]</code> 并升级为最高置信度。</li>
+            </ul>
+          </div>
+          <div class="cocoon-card">
+            <div class="cocoon-card-head">
+              <span class="pill-dot" style="background:var(--emerald)"></span>
+              <h3>VEX 数据流 + 状态机 + Z3 核心</h3>
+            </div>
+            <ul>
+              <li>• <code>taint.py</code> 统一追踪寄存器与 <code>sp/bp</code> 栈帧槽位，建模 <code>snprintf</code>/<code>atoi</code>/<code>strdup</code> 传播并剔除 <code>.rodata</code> 常量误报。</li>
+              <li>• <code>detectors.py</code> 驱动有状态指针与算术状态机，精准捕获 <code>CWE-415/416/476/190</code> 与定长栈越界。</li>
+              <li>• <code>verifier.py</code> 与 <code>sarif.py</code> 执行有界 Z3 可行性剪枝，输出带 <code>codeFlows</code> 的标准 SARIF 2.1.0 报告。</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 2. 六大技术亮点 -->
+    <section id="highlights">
+      <div class="sec-head">
+        <div class="sec-tag">02 / Core Highlights</div>
+        <h2>六大核心技术亮点</h2>
+        <p>针对传统二进制扫描工具“纯 CFG 可达性误报爆炸、PIE 地址错位、-O2 优化失明、存量告警无法落地门禁”四大痛点逐一攻克。</p>
+      </div>
+
+      <div class="hl-grid">
+        <div class="hl-card">
+          <div class="hl-top">
+            <span class="hl-icon" style="background:var(--emerald-soft);color:var(--emerald)">HYBRID IR</span>
+            <span class="hl-metric">SSA ∩ VEX 交叉印证</span>
+          </div>
+          <h3>双引擎混合融合与零依赖离线降级</h3>
+          <p>同时兼具 Ghidra 反编译器类型恢复与结构体感知优势（High P-Code SSA）以及 <code>angr</code> 跨函数符号求解优势（VEX + Z3）。分析无本地文件的远程 <code>.gpr</code> 或冷门单片机裸固件时可一键切换或自动降级至纯 Java P-Code 模式。</p>
+        </div>
+
+        <div class="hl-card">
+          <div class="hl-top">
+            <span class="hl-icon" style="background:var(--cyan-soft);color:var(--cyan)">DATA-FLOW</span>
+            <span class="hl-metric">常量与边界感知</span>
+          </div>
+          <h3>统一栈帧坐标系与真实数据流污点传播</h3>
+          <p>在 VEX 层打通 <code>rsp</code> 与 <code>rbp</code> 栈帧偏移，自动推断相邻栈槽容量上限，完整追踪 <code>snprintf</code>/<code>atoi</code>/<code>strdup</code> 等传播链，并自动过滤 <code>printf("const %s", x)</code>、<code>system("const")</code> 等只读常量参数假阳性。</p>
+        </div>
+
+        <div class="hl-card">
+          <div class="hl-top">
+            <span class="hl-icon" style="background:var(--violet-soft);color:var(--violet)">LIFECYCLE</span>
+            <span class="hl-metric">CWE-415 / 416 / 476 / 190</span>
+          </div>
+          <h3>有状态指针生命周期与跨函数整数溢出检测</h3>
+          <p>摒弃“见 <code>free</code> 就报 UAF”的粗糙规则：精准跟踪 <code>Allocated → NullChecked / Freed → Deref / SecondFree</code> 状态迁移，识别 <code>p = NULL</code> 置空与重新分配消解（正常释放零误报），并支持跨函数受污染整数算术溢出（<code>CWE-190</code>）检测。</p>
+        </div>
+
+        <div class="hl-card">
+          <div class="hl-top">
+            <span class="hl-icon" style="background:var(--amber-soft);color:var(--amber)">-O2 READY</span>
+            <span class="hl-metric">Tail-Call 尾调用识别</span>
+          </div>
+          <h3>抗 <code>-O2</code> / <code>-Os</code> 生产级编译优化</h3>
+          <p>真实发布版固件与动态库会将函数末尾的 <code>puts(p)</code>、二次 <code>free(p)</code> 或包装函数调用优化为无栈帧的 <code>jmp</code>/<code>b</code> 尾调用跳转。双端扫描器均将跨函数 Jumpout 纳入一等调用建模，确保高优化产物不漏检。</p>
+        </div>
+
+        <div class="hl-card">
+          <div class="hl-top">
+            <span class="hl-icon" style="background:var(--rose-soft);color:var(--rose)">Z3 SMT</span>
+            <span class="hl-metric">死分支自动剪枝</span>
+          </div>
+          <h3>有界 Z3 符号路径可行性验证</h3>
+          <p>自动对外部 PLT 及 Mach-O 导入桩挂载符号化摘要，通过有界步数与活跃状态预算的 <code>SimulationManager</code> 验证分支约束可满足性（点亮 <code>verified: true</code>），自动剪除逻辑互斥的死代码分支。</p>
+        </div>
+
+        <div class="hl-card">
+          <div class="hl-top">
+            <span class="hl-icon" style="background:var(--cyan-soft);color:var(--cyan)">DEVSECOPS</span>
+            <span class="hl-metric">SARIF + Baseline 门禁</span>
+          </div>
+          <h3>SARIF 2.1.0 与存量基线差分门禁</h3>
+          <p>原生输出带完整数据流步进轨迹（<code>codeFlows</code>）与 CVSS 安全评分的 SARIF 2.1.0 报告，无缝接入 GitHub Security 与 DefectDojo；配合 <code>--baseline</code> 指纹比对，老项目接入 CI 时只拦截<strong>新增</strong>高危漏洞。</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- 3. 五阶段流水线与模块职责矩阵 -->
+    <section id="modules">
+      <div class="sec-head">
+        <div class="sec-tag">03 / Module Relations</div>
+        <h2>五阶段数据流流水线与核心模块契约</h2>
+        <p>从二进制加载到逆向工作台染色与 CI 阻断，各模块边界清晰、职责单一。</p>
+      </div>
+
+      <div class="pipeline">
+        <div class="pipe-step">
+          <div class="pipe-num">STAGE 01</div>
+          <h4>基址对齐与归一化</h4>
+          <p>同步 Ghidra <code>imageBase</code> 至 <code>angr</code>，解析 Mach-O/PLT 导入桩，剥离 <code>_chk</code> 与平台前缀并加载 <code>.toml</code> 规则。</p>
+        </div>
+        <div class="pipe-step" style="border-top-color:var(--emerald)">
+          <div class="pipe-num" style="color:var(--emerald)">STAGE 02</div>
+          <h4>双端 IR 构建</h4>
+          <p>Java 端反编译产出 <code>HighFunction</code> SSA 图；Python 端构建单次缓存复用的 <code>CFGFast</code> 与 VEX 基本块。</p>
+        </div>
+        <div class="pipe-step" style="border-top-color:var(--violet)">
+          <div class="pipe-num" style="color:var(--violet)">STAGE 03</div>
+          <h4>污点与状态机推导</h4>
+          <p>执行过程内/跨函数污点传播，并行演进指针生命周期与受污染整数算术状态机。</p>
+        </div>
+        <div class="pipe-step" style="border-top-color:var(--rose)">
+          <div class="pipe-num" style="color:var(--rose)">STAGE 04</div>
+          <h4>Z3 验证与双核融合</h4>
+          <p>利用 Z3 SMT 剔除不可达死路径，按统一键融合 SSA 与 VEX 告警并升级 <code>[HYBRID]</code> 置信度。</p>
+        </div>
+        <div class="pipe-step" style="border-top-color:var(--amber)">
+          <div class="pipe-num" style="color:var(--amber)">STAGE 05</div>
+          <h4>交互溯源与门禁输出</h4>
+          <p>驱动反编译器三色路径染色与书签持久化，或经 <code>--baseline</code> 差分后输出 SARIF 2.1.0 门禁码。</p>
+        </div>
+      </div>
+
+      <div class="table-card">
+        <table>
+          <thead>
+            <tr>
+              <th>所属分层</th>
+              <th>模块文件</th>
+              <th>上游输入</th>
+              <th>下游产出</th>
+              <th>核心职责说明</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong>Java 工作台</strong></td>
+              <td><code>VulnHunterProvider</code></td>
+              <td>融合告警 JSON、筛选条件</td>
+              <td><code>GoToService</code>、<code>Bookmark</code>、SARIF</td>
+              <td>可停靠三标签表格、Taint Path 步进跳转树、严重度检索及审计状态标定</td>
+            </tr>
+            <tr>
+              <td><strong>Java 分析核</strong></td>
+              <td><code>PCodeTaintAnalyzer</code></td>
+              <td>Ghidra <code>Program</code> &amp; <code>DecompInterface</code></td>
+              <td>SSA <code>VulnFinding</code> 列表</td>
+              <td>零 Python 依赖的 <code>HighFunction</code> SSA 数据流追踪、Phi 合并与 UAF/双重释放检测</td>
+            </tr>
+            <tr>
+              <td><strong>Java 通信层</strong></td>
+              <td><code>ProgramScanner</code> + <code>EngineManager</code></td>
+              <td><code>FunctionManager</code>、<code>TaskMonitor</code></td>
+              <td>鉴权 <code>stdio</code> JSON-line 管道</td>
+              <td>Thunk 与 <code>-O2</code> 尾调用提取、PIE 基址同步、实例级子进程生命周期与任务取消</td>
+            </tr>
+            <tr>
+              <td><strong>Python 编排</strong></td>
+              <td><code>rules.py</code> + <code>engine.py</code></td>
+              <td>二进制路径、<code>base_addr</code>、规则包</td>
+              <td>归一化源/汇点、单次 <code>CFGFast</code></td>
+              <td>跨平台符号归一化、GOT 跳板重命名、按函数幂等缓存与双阶段分析编排</td>
+            </tr>
+            <tr>
+              <td><strong>Python 分析核</strong></td>
+              <td><code>taint.py</code> + <code>detectors.py</code></td>
+              <td>VEX IRSB、调用图、架构 ABI</td>
+              <td>带证据链的 <code>TaintPath</code></td>
+              <td>寄存器/栈槽污点传播、<code>.rodata</code> 常量抑制、CWE-415/416/476/190/120 状态机</td>
+            </tr>
+            <tr>
+              <td><strong>Python 验证/CI</strong></td>
+              <td><code>verifier.py</code> + <code>sarif.py</code></td>
+              <td>候选漏洞集、历史 Baseline 文件</td>
+              <td>Z3 验证 SARIF 2.1.0 与退出码</td>
+              <td>有界 Z3 可达性求解、OASIS SARIF <code>codeFlows</code> 序列化与指纹差分过滤</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- 4. 基准评测与工具对比 -->
+    <section id="benchmark">
+      <div class="sec-head">
+        <div class="sec-tag">04 / Benchmark &amp; Comparison</div>
+        <h2>7 类 CWE 基准评测榜单与同类工具对比</h2>
+        <p>每次提交均由 GitHub Actions 自动编译包含漏洞样本（<code>bad_*</code>）与修复对照组（<code>good_*</code>）的原生 C 测试集，量化检验不同优化级别下的真实检出率与误报率。</p>
+      </div>
+
+      <div class="table-card" style="margin-bottom:1.25rem">
+        <table>
+          <thead>
+            <tr>
+              <th>编译优化级别</th>
+              <th>漏洞样本 (<code>bad_*</code>)</th>
+              <th>安全对照 (<code>good_*</code>)</th>
+              <th>真正例 (TP)</th>
+              <th>误报数 (FP)</th>
+              <th>准确率 (Precision)</th>
+              <th>召回率 (Recall)</th>
+              <th>F1 分数 / 耗时</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>clang -O0</code>（开启 Z3 <code>--verify</code>）</td>
+              <td>7</td>
+              <td>7</td>
+              <td>7</td>
+              <td>0</td>
+              <td><span class="tag-pass">100.0%</span></td>
+              <td><span class="tag-pass">100.0%</span></td>
+              <td><strong>100.0%</strong> · 1.95s</td>
+            </tr>
+            <tr>
+              <td><code>clang -O2</code>（含尾调用与寄存器提升）</td>
+              <td>7</td>
+              <td>7</td>
+              <td>7</td>
+              <td>0</td>
+              <td><span class="tag-pass">100.0%</span></td>
+              <td><span class="tag-pass">100.0%</span></td>
+              <td><strong>100.0%</strong> · 0.48s</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="table-card">
+        <table>
+          <thead>
+            <tr>
+              <th>对比维度</th>
+              <th>VulnHunter4Ghidra v2.0</th>
+              <th>cwe_checker</th>
+              <th>AppShark</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong>核心分析对象</strong></td>
+              <td>原生二进制（<code>ELF</code>、<code>PE</code>、<code>Mach-O</code>、JNI <code>.so</code>、裸固件）</td>
+              <td>原生二进制（外部调用 Ghidra Headless）</td>
+              <td>Android APK（Java / Dalvik 字节码）</td>
+            </tr>
+            <tr>
+              <td><strong>底层分析引擎</strong></td>
+              <td><strong>Ghidra High P-Code SSA + angr VEX + Z3 混合双引擎</strong></td>
+              <td>基于 IR 的启发式模式匹配</td>
+              <td>Soot / FlowDroid（Jimple IR）</td>
+            </tr>
+            <tr>
+              <td><strong>误报抑制能力</strong></td>
+              <td><code>.rodata</code> 常量排除、栈槽容量推断、<code>p = NULL</code> 消解与 Z3 死分支剪枝</td>
+              <td>缺少跨流常量与边界上下文，误报偏高</td>
+              <td>基于规则配置过滤 Sanitizer</td>
+            </tr>
+            <tr>
+              <td><strong>逆向交互体验</strong></td>
+              <td>Ghidra 停靠工作台、反编译器三色路径染色、右键单函数与书签闭环</td>
+              <td>仅命令行批量输出</td>
+              <td>仅命令行批量输出</td>
+            </tr>
+            <tr>
+              <td><strong>DevSecOps 集成</strong></td>
+              <td>标准 SARIF 2.1.0 <code>codeFlows</code> + <code>--baseline</code> 增量门禁 + Docker</td>
+              <td>JSON / 纯文本输出</td>
+              <td>JSON / HTML 报告</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- 5. 快速上手 -->
+    <section id="quickstart">
+      <div class="sec-head">
+        <div class="sec-tag">05 / Quick Start</div>
+        <h2>60 秒快速上手</h2>
+        <p>既可编译安装至 Ghidra 进行图形化深度审计，也可通过 CLI / Docker 一行命令接入构建流水线。</p>
+      </div>
+
+      <div class="code-grid">
+        <div class="code-panel">
+          <div class="code-panel-head">1. 安装 CLI 与构建 Ghidra 插件</div>
+          <pre><span class="cm"># 安装 Python 分析引擎与 `vulnhunter` 命令</span>
+python3 -m venv .venv &amp;&amp; source .venv/bin/activate
+<span class="kw">pip install -e .</span>
+
+<span class="cm"># 构建 Ghidra 11.x 扩展包（产物位于 dist/*.zip）</span>
+export GHIDRA_INSTALL_DIR=/path/to/ghidra_11.x
+<span class="kw">gradle buildExtension</span> -PGHIDRA_INSTALL_DIR=$GHIDRA_INSTALL_DIR</pre>
+        </div>
+
+        <div class="code-panel">
+          <div class="code-panel-head">2. 导出 SARIF 2.1.0 与增量基线门禁</div>
+          <pre><span class="cm"># 加载固件规则包 + Z3 验证并导出 SARIF 2.1.0</span>
+<span class="kw">vulnhunter report</span> ./firmware.elf \
+  --rules rules/embedded_iot.toml --verify \
+  --format sarif -o vulnhunter.sarif
+
+<span class="cm"># 存量基线差分：仅在新增 High/Critical 漏洞时阻断构建</span>
+<span class="kw">vulnhunter report</span> ./firmware.elf \
+  --baseline baseline.sarif --fail-on high</pre>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <p><strong>VulnHunter4Ghidra v2.0.0</strong> · Apache-2.0 开源协议 · 架构图遵循 Cocoon AI 淡色工程规范构建</p>
+    <p style="margin-top:0.35rem">
+      <a href="https://github.com/overkazaf/VulnHunter4Ghidra">GitHub 仓库</a> ·
+      <a href="index.html">English Version</a>
+    </p>
+  </footer>
+  
+<script>
+  async function captureArchCanvas() {
+    const el = document.getElementById('report-container');
+    const r = el.getBoundingClientRect();
+    const pad = 24;
+    return await html2canvas(document.body, {
+      backgroundColor: '#f8fafc',
+      scale: 2,
+      useCORS: true,
+      ignoreElements: (e) => e.classList && e.classList.contains('toolbar'),
+      x: r.left + window.scrollX - pad,
+      y: r.top + window.scrollY - pad,
+      width: r.width + pad * 2,
+      height: r.height + pad * 2
+    });
+  }
+
+  async function copyAsImage(btn) {
+    const orig = btn.textContent;
+    try {
+      const canvas = await captureArchCanvas();
+      const blob = await new Promise(res => canvas.toBlob(res, 'image/png'));
+      await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
+      btn.textContent = '✓ Copied!';
+    } catch (e) {
+      btn.textContent = '✗ Failed';
+    }
+    setTimeout(() => btn.textContent = orig, 2000);
+  }
+
+  async function downloadPNG(btn) {
+    const orig = btn.textContent;
+    btn.textContent = '⏳ ...';
+    try {
+      const canvas = await captureArchCanvas();
+      const link = document.createElement('a');
+      link.download = 'vulnhunter4ghidra-architecture.png';
+      link.href = canvas.toDataURL('image/png');
+      link.click();
+      btn.textContent = '✓ Done!';
+    } catch (e) {
+      btn.textContent = '✗ Failed';
+    }
+    setTimeout(() => btn.textContent = orig, 2000);
+  }
+
+  async function downloadPDF(btn) {
+    const orig = btn.textContent;
+    btn.textContent = '⏳ ...';
+    try {
+      const canvas = await captureArchCanvas();
+      const imgData = canvas.toDataURL('image/png');
+      const { jsPDF } = window.jspdf;
+      const orientation = canvas.width > canvas.height ? 'landscape' : 'portrait';
+      const pdf = new jsPDF({ orientation, unit: 'px', format: [canvas.width, canvas.height], hotfixes: ['px_scaling'] });
+      pdf.addImage(imgData, 'PNG', 0, 0, canvas.width, canvas.height);
+      pdf.save('vulnhunter4ghidra-architecture.pdf');
+      btn.textContent = '✓ Done!';
+    } catch (e) {
+      btn.textContent = '✗ Failed';
+    }
+    setTimeout(() => btn.textContent = orig, 2000);
+  }
+</script>
+
+</body>
+</html>

@@ -2,7 +2,7 @@
 
 **Hybrid High P-Code SSA & angr VEX/Z3 vulnerability detection and taint analysis workbench for native binaries.**
 
-[中文文档](README_CN.md)
+[中文文档](README_CN.md) · [Interactive Architecture & Docs Site (GitHub Pages)](https://overkazaf.github.io/VulnHunter4Ghidra/)
 
 ---
 
@@ -20,16 +20,7 @@ VulnHunter4Ghidra uncovers memory corruption, pointer lifecycle, integer overflo
 
 ## Architecture
 
-```
-┌────────────────────────────┐   Authenticated JSON-line    ┌────────────────────────────┐
-│   Ghidra Workbench (Java)  │◄────────────────────────────►│   Python Engine            │
-│                            │      stdio pipe (per-inst)   │   (angr VEX + Z3)          │
-│  • PCodeTaintAnalyzer (SSA)│                              │  • VEX Data-Flow Taint     │
-│  • VulnHunterProvider UI   │                              │  • Lifecycle Detectors     │
-│  • TaintPathHighlighter    │                              │  • Z3 Path Verifier        │
-│  • Background Tasks & Marks│                              │  • SARIF 2.1.0 & Rules     │
-└────────────────────────────┘                              └────────────────────────────┘
-```
+![VulnHunter4Ghidra Hybrid Architecture](docs/assets/architecture-light.svg)
 
 The Java plugin aligns Ghidra's image base (`getImageBase()`) with the Python engine over an isolated, session-token-authenticated `stdio` JSON-line pipe (eliminating TCP port collisions across multiple Ghidra instances and preventing unauthorized local socket access). In **Hybrid Mode**, findings confirmed independently by both Ghidra High P-Code SSA and `angr` VEX are automatically promoted to high confidence with merged evidence.
 

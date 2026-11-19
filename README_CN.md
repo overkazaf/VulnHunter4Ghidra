@@ -2,7 +2,7 @@
 
 **融合 Ghidra High P-Code SSA 与 angr VEX/Z3 的原生二进制交互式漏洞挖掘与污点分析工作台。**
 
-[English](README.md)
+[English](README.md) · [交互式架构全景主页 (GitHub Pages)](https://overkazaf.github.io/VulnHunter4Ghidra/index_cn.html)
 
 ---
 
@@ -20,16 +20,7 @@ VulnHunter4Ghidra 面向已编译原生二进制文件（`ELF`、`PE`、`Mach-O`
 
 ## 架构设计
 
-```
-┌────────────────────────────┐   鉴权 JSON-line stdio 管道  ┌────────────────────────────┐
-│   Ghidra 工作台 (Java)     │◄────────────────────────────►│   Python 分析引擎          │
-│                            │      按实例隔离，零端口冲突  │   (angr VEX + Z3)          │
-│  • PCodeTaintAnalyzer (SSA)│                              │  • VEX 数据流污点引擎      │
-│  • VulnHunterProvider UI   │                              │  • 指针生命周期状态机      │
-│  • TaintPathHighlighter    │                              │  • Z3 路径可行性验证       │
-│  • 后台 Task 与书签持久化  │                              │  • SARIF 2.1.0 & 规则引擎  │
-└────────────────────────────┘                              └────────────────────────────┘
-```
+![VulnHunter4Ghidra 双引擎混合系统架构图](docs/assets/architecture-light-cn.svg)
 
 Java 插件端自动将 Ghidra 程序的加载基址（`getImageBase()`）同步至 Python 引擎，并通过带随机一次性会话 Token 鉴权的独立 `stdio` 管道通信（彻底消除多开 Ghidra 窗口的端口冲突与本地端口未授权访问风险）。在默认的 **Hybrid 混合模式**下，Ghidra High P-Code SSA 与 `angr` VEX 双引擎独立命中的漏洞会自动标记 `[HYBRID]` 高置信度证据。
 

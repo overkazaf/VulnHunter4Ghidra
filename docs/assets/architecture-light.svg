@@ -1,0 +1,213 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1120 724" width="1120" height="724" role="img" aria-label="VulnHunter4Ghidra Architecture Diagram">
+  <defs>
+    <pattern id="vh-grid" width="36" height="36" patternUnits="userSpaceOnUse">
+      <path d="M 36 0 L 0 0 0 36" fill="none" stroke="#e2e8f0" stroke-width="0.8"/>
+    </pattern>
+    <marker id="arr-slate" markerWidth="9" markerHeight="7" refX="8" refY="3.5" orient="auto">
+      <polygon points="0 0, 9 3.5, 0 7" fill="#64748b"/>
+    </marker>
+    <marker id="arr-cyan" markerWidth="9" markerHeight="7" refX="8" refY="3.5" orient="auto">
+      <polygon points="0 0, 9 3.5, 0 7" fill="#0284c7"/>
+    </marker>
+    <marker id="arr-emerald" markerWidth="9" markerHeight="7" refX="8" refY="3.5" orient="auto">
+      <polygon points="0 0, 9 3.5, 0 7" fill="#059669"/>
+    </marker>
+    <marker id="arr-violet" markerWidth="9" markerHeight="7" refX="8" refY="3.5" orient="auto">
+      <polygon points="0 0, 9 3.5, 0 7" fill="#7c3aed"/>
+    </marker>
+    <marker id="arr-orange" markerWidth="9" markerHeight="7" refX="8" refY="3.5" orient="auto">
+      <polygon points="0 0, 9 3.5, 0 7" fill="#ea580c"/>
+    </marker>
+    <marker id="arr-rose" markerWidth="9" markerHeight="7" refX="8" refY="3.5" orient="auto">
+      <polygon points="0 0, 9 3.5, 0 7" fill="#e11d48"/>
+    </marker>
+    <marker id="arr-amber" markerWidth="9" markerHeight="7" refX="8" refY="3.5" orient="auto">
+      <polygon points="0 0, 9 3.5, 0 7" fill="#d97706"/>
+    </marker>
+  </defs>
+  <g font-family="'JetBrains Mono', 'SFMono-Regular', Consolas, monospace">
+    <rect width="1120" height="724" rx="12" fill="#f8fafc"/>
+    <rect width="1120" height="724" rx="12" fill="url(#vh-grid)"/>
+    <rect x="1" y="1" width="1118" height="722" rx="12" fill="none" stroke="#cbd5e1" stroke-width="1"/>
+
+    <!-- 1. REGION BOUNDARIES (drawn before connectors & boxes) -->
+    <rect x="224" y="28" width="668" height="264" rx="12" fill="rgba(2, 132, 199, 0.03)" stroke="#0284c7" stroke-width="1.2" stroke-dasharray="8,4"/>
+    <text x="240" y="49" fill="#0369a1" font-size="10" font-weight="700">GHIDRA WORKBENCH LAYER (JAVA 21 · NATIVE EXTENSION)</text>
+
+    <rect x="224" y="368" width="668" height="274" rx="12" fill="rgba(5, 150, 105, 0.03)" stroke="#059669" stroke-width="1.2" stroke-dasharray="8,4"/>
+    <text x="240" y="389" fill="#047857" font-size="10" font-weight="700">PYTHON STATIC &amp; SYMBOLIC ENGINE (ANGR VEX IR · CLARIPY · Z3)</text>
+
+    <!-- 2. EARLY Z-ORDER ARROWS (masked cleanly behind opaque white component backings) -->
+    <!-- Binary Targets -> ProgramScanner/PCode & Python Engine -->
+    <path d="M 192 125 L 244 125" fill="none" stroke="#64748b" stroke-width="1.5" marker-end="url(#arr-slate)"/>
+    <path d="M 192 155 L 210 155 L 210 235 L 244 235" fill="none" stroke="#059669" stroke-width="1.5" marker-end="url(#arr-emerald)"/>
+    <path d="M 192 170 L 204 170 L 204 432 L 460 432" fill="none" stroke="#64748b" stroke-width="1.4" stroke-dasharray="4,3" marker-end="url(#arr-slate)"/>
+    <!-- Rule Packs -> PCode & rules.py -->
+    <path d="M 192 279 L 214 279 L 214 456 L 460 456" fill="none" stroke="#7c3aed" stroke-width="1.5" marker-end="url(#arr-violet)"/>
+    <path d="M 192 262 L 244 262" fill="none" stroke="#7c3aed" stroke-width="1.4" stroke-dasharray="4,3" marker-end="url(#arr-violet)"/>
+    <!-- CLI & Docker -> cli.py -->
+    <path d="M 192 487 L 244 487" fill="none" stroke="#0284c7" stroke-width="1.5" marker-end="url(#arr-cyan)"/>
+
+    <!-- Intra-Java Workbench flows -->
+    <line x1="460" y1="111" x2="440" y2="111" stroke="#0284c7" stroke-width="1.5" marker-end="url(#arr-cyan)"/>
+    <line x1="440" y1="95" x2="676" y2="95" stroke="#7c3aed" stroke-width="1.4" marker-end="url(#arr-violet)"/>
+    <line x1="558" y1="154" x2="774" y2="194" stroke="#0284c7" stroke-width="1.4" marker-end="url(#arr-cyan)"/>
+    <line x1="448" y1="235" x2="466" y2="235" stroke="#059669" stroke-width="1.6" marker-end="url(#arr-emerald)"/>
+    <line x1="676" y1="235" x2="658" y2="235" stroke="#e11d48" stroke-width="1.5" stroke-dasharray="4,3" marker-end="url(#arr-rose)"/>
+    <line x1="562" y1="194" x2="342" y2="154" stroke="#e11d48" stroke-width="1.6" marker-end="url(#arr-rose)"/>
+    <line x1="872" y1="111" x2="928" y2="111" stroke="#7c3aed" stroke-width="1.5" marker-end="url(#arr-violet)"/>
+
+    <!-- IPC Bus bidirectional flows (EngineManager <-> stdio Bus <-> server.py) -->
+    <path d="M 774 276 L 774 316" fill="none" stroke="#ea580c" stroke-width="1.8" marker-end="url(#arr-orange)"/>
+    <path d="M 520 344 L 342 344 L 342 404" fill="none" stroke="#ea580c" stroke-width="1.8" marker-end="url(#arr-orange)"/>
+    <path d="M 380 404 L 380 330 L 450 330" fill="none" stroke="#e11d48" stroke-width="1.4" stroke-dasharray="4,3" marker-end="url(#arr-rose)"/>
+
+    <!-- Intra-Python Engine flows -->
+    <line x1="440" y1="447" x2="460" y2="447" stroke="#0284c7" stroke-width="1.5" marker-end="url(#arr-cyan)"/>
+    <line x1="520" y1="490" x2="347" y2="532" stroke="#059669" stroke-width="1.5" marker-end="url(#arr-emerald)"/>
+    <line x1="558" y1="490" x2="562" y2="532" stroke="#059669" stroke-width="1.5" marker-end="url(#arr-emerald)"/>
+    <line x1="448" y1="578" x2="466" y2="578" stroke="#059669" stroke-width="1.5" marker-end="url(#arr-emerald)"/>
+    <line x1="658" y1="578" x2="676" y2="578" stroke="#e11d48" stroke-width="1.6" stroke-dasharray="4,3" marker-end="url(#arr-rose)"/>
+    <line x1="774" y1="532" x2="774" y2="490" stroke="#d97706" stroke-width="1.6" marker-end="url(#arr-amber)"/>
+    <line x1="656" y1="447" x2="676" y2="447" stroke="#d97706" stroke-width="1.5" marker-end="url(#arr-amber)"/>
+    <line x1="872" y1="447" x2="928" y2="447" stroke="#d97706" stroke-width="1.6" marker-end="url(#arr-amber)"/>
+    <path d="M 872 470 L 904 470 L 904 578 L 928 578" fill="none" stroke="#e11d48" stroke-width="1.5" stroke-dasharray="4,3" marker-end="url(#arr-rose)"/>
+
+    <!-- 3. INLINE IPC MESSAGE BUS (centered cleanly in gap y=292..368) -->
+    <rect x="450" y="316" width="422" height="28" rx="6" fill="#ffffff"/>
+    <rect x="450" y="316" width="422" height="28" rx="6" fill="rgba(249, 115, 22, 0.11)" stroke="#ea580c" stroke-width="1.5"/>
+    <text x="661" y="334" fill="#9a3412" font-size="9.5" font-weight="700" text-anchor="middle">stdio JSON-Line Pipe · HMAC Session Token · fd1→stderr Isolation</text>
+
+    <!-- 4. COMPONENT BOXES WITH OPAQUE WHITE MASKING -->
+    <rect x="24" y="96" width="168" height="86" rx="7" fill="#ffffff"/>
+    <rect x="24" y="96" width="168" height="86" rx="7" fill="rgba(100, 116, 139, 0.09)" stroke="#64748b" stroke-width="1.5"/>
+    <text x="108" y="116" fill="#0f172a" font-size="11" font-weight="700" text-anchor="middle">Binary Targets</text>
+    <text x="108" y="133" fill="#475569" font-size="8.5" text-anchor="middle">ELF · PE · Mach-O</text>
+    <text x="108" y="147" fill="#475569" font-size="8.5" text-anchor="middle">Android JNI .so</text>
+    <text x="108" y="161" fill="#475569" font-size="8.5" text-anchor="middle">Stripped Firmware</text>
+    <text x="108" y="174" fill="#475569" font-size="7.8" font-weight="600" text-anchor="middle">20+ Archs</text>
+    <rect x="24" y="236" width="168" height="86" rx="7" fill="#ffffff"/>
+    <rect x="24" y="236" width="168" height="86" rx="7" fill="rgba(139, 92, 246, 0.09)" stroke="#7c3aed" stroke-width="1.5"/>
+    <text x="108" y="256" fill="#0f172a" font-size="11" font-weight="700" text-anchor="middle">Extensible Rules</text>
+    <text x="108" y="273" fill="#475569" font-size="8.5" text-anchor="middle">rules/*.toml · *.json</text>
+    <text x="108" y="287" fill="#475569" font-size="8.5" text-anchor="middle">POSIX · Win32 · IoT</text>
+    <text x="108" y="301" fill="#475569" font-size="8.5" text-anchor="middle">Source / Sink / Sanitizer</text>
+    <text x="108" y="314" fill="#6d28d9" font-size="7.8" font-weight="600" text-anchor="middle">Hot-Reload</text>
+    <rect x="24" y="444" width="168" height="86" rx="7" fill="#ffffff"/>
+    <rect x="24" y="444" width="168" height="86" rx="7" fill="rgba(14, 165, 233, 0.09)" stroke="#0284c7" stroke-width="1.5"/>
+    <text x="108" y="464" fill="#0f172a" font-size="11" font-weight="700" text-anchor="middle">CLI &amp; Docker</text>
+    <text x="108" y="481" fill="#475569" font-size="8.5" text-anchor="middle">vulnhunter scan|taint</text>
+    <text x="108" y="495" fill="#475569" font-size="8.5" text-anchor="middle">vulnhunter report</text>
+    <text x="108" y="509" fill="#475569" font-size="8.5" text-anchor="middle">--verify --baseline</text>
+    <text x="108" y="522" fill="#0369a1" font-size="7.8" font-weight="600" text-anchor="middle">Headless CI</text>
+    <rect x="244" y="68" width="196" height="86" rx="7" fill="#ffffff"/>
+    <rect x="244" y="68" width="196" height="86" rx="7" fill="rgba(14, 165, 233, 0.09)" stroke="#0284c7" stroke-width="1.5"/>
+    <text x="342" y="88" fill="#0f172a" font-size="11" font-weight="700" text-anchor="middle">VulnHunterProvider</text>
+    <text x="342" y="105" fill="#475569" font-size="8.5" text-anchor="middle">Findings / Sources / Sinks</text>
+    <text x="342" y="119" fill="#475569" font-size="8.5" text-anchor="middle">Taint Path Tree &amp; Filter</text>
+    <text x="342" y="146" fill="#0369a1" font-size="7.8" font-weight="600" text-anchor="middle">Dockable UI</text>
+    <rect x="460" y="68" width="196" height="86" rx="7" fill="#ffffff"/>
+    <rect x="460" y="68" width="196" height="86" rx="7" fill="rgba(14, 165, 233, 0.09)" stroke="#0284c7" stroke-width="1.5"/>
+    <text x="558" y="88" fill="#0f172a" font-size="11" font-weight="700" text-anchor="middle">ProgramScanner &amp; Tasks</text>
+    <text x="558" y="105" fill="#475569" font-size="8.5" text-anchor="middle">Async TaskMonitor (Cancel)</text>
+    <text x="558" y="119" fill="#475569" font-size="8.5" text-anchor="middle">Thunk &amp; -O2 Tail-Call</text>
+    <text x="558" y="146" fill="#0369a1" font-size="7.8" font-weight="600" text-anchor="middle">Context Actions</text>
+    <rect x="676" y="68" width="196" height="86" rx="7" fill="#ffffff"/>
+    <rect x="676" y="68" width="196" height="86" rx="7" fill="rgba(139, 92, 246, 0.09)" stroke="#7c3aed" stroke-width="1.5"/>
+    <text x="774" y="88" fill="#0f172a" font-size="11" font-weight="700" text-anchor="middle">Highlighter &amp; Bookmarks</text>
+    <text x="774" y="105" fill="#475569" font-size="8.5" text-anchor="middle">Listing + Decompiler Color</text>
+    <text x="774" y="119" fill="#475569" font-size="8.5" text-anchor="middle">Confirmed / FP Bookmarks</text>
+    <text x="774" y="146" fill="#6d28d9" font-size="7.8" font-weight="600" text-anchor="middle">.gpr State</text>
+    <rect x="244" y="194" width="204" height="82" rx="7" fill="#ffffff"/>
+    <rect x="244" y="194" width="204" height="82" rx="7" fill="rgba(16, 185, 129, 0.09)" stroke="#059669" stroke-width="1.5"/>
+    <text x="346" y="214" fill="#0f172a" font-size="11" font-weight="700" text-anchor="middle">PCodeTaintAnalyzer</text>
+    <text x="346" y="231" fill="#475569" font-size="8.5" text-anchor="middle">HighFunction SSA Def-Use</text>
+    <text x="346" y="245" fill="#475569" font-size="8.5" text-anchor="middle">Phi + CWE-415/416/190</text>
+    <text x="346" y="268" fill="#047857" font-size="7.8" font-weight="600" text-anchor="middle">Engine #1 · Zero-Python</text>
+    <rect x="466" y="194" width="192" height="82" rx="7" fill="#ffffff"/>
+    <rect x="466" y="194" width="192" height="82" rx="7" fill="rgba(244, 63, 94, 0.09)" stroke="#e11d48" stroke-width="1.5"/>
+    <text x="562" y="214" fill="#0f172a" font-size="11" font-weight="700" text-anchor="middle">Hybrid Fusion Merger</text>
+    <text x="562" y="231" fill="#475569" font-size="8.5" text-anchor="middle">SSA ∩ VEX Cross-Confirm</text>
+    <text x="562" y="245" fill="#475569" font-size="8.5" text-anchor="middle">Auto-Fallback for Raw ROM</text>
+    <text x="562" y="268" fill="#be123c" font-size="7.8" font-weight="600" text-anchor="middle">[HYBRID] Boost</text>
+    <rect x="676" y="194" width="196" height="82" rx="7" fill="#ffffff"/>
+    <rect x="676" y="194" width="196" height="82" rx="7" fill="rgba(14, 165, 233, 0.09)" stroke="#0284c7" stroke-width="1.5"/>
+    <text x="774" y="214" fill="#0f172a" font-size="11" font-weight="700" text-anchor="middle">EngineManager</text>
+    <text x="774" y="231" fill="#475569" font-size="8.5" text-anchor="middle">getImageBase() PIE Sync</text>
+    <text x="774" y="245" fill="#475569" font-size="8.5" text-anchor="middle">128-bit Session Token</text>
+    <text x="774" y="268" fill="#0369a1" font-size="7.8" font-weight="600" text-anchor="middle">Per-Instance RPC</text>
+    <rect x="244" y="404" width="196" height="86" rx="7" fill="#ffffff"/>
+    <rect x="244" y="404" width="196" height="86" rx="7" fill="rgba(14, 165, 233, 0.09)" stroke="#0284c7" stroke-width="1.5"/>
+    <text x="342" y="424" fill="#0f172a" font-size="11" font-weight="700" text-anchor="middle">server.py &amp; cli.py</text>
+    <text x="342" y="441" fill="#475569" font-size="8.5" text-anchor="middle">Token-Guarded stdio/TCP</text>
+    <text x="342" y="455" fill="#475569" font-size="8.5" text-anchor="middle">Streaming Scan Progress</text>
+    <text x="342" y="482" fill="#0369a1" font-size="7.8" font-weight="600" text-anchor="middle">RPC &amp; CLI Layer</text>
+    <rect x="460" y="404" width="196" height="86" rx="7" fill="#ffffff"/>
+    <rect x="460" y="404" width="196" height="86" rx="7" fill="rgba(139, 92, 246, 0.09)" stroke="#7c3aed" stroke-width="1.5"/>
+    <text x="558" y="424" fill="#0f172a" font-size="11" font-weight="700" text-anchor="middle">engine.py &amp; rules.py</text>
+    <text x="558" y="441" fill="#475569" font-size="8.5" text-anchor="middle">PIE Base + CFGFast Reuse</text>
+    <text x="558" y="455" fill="#475569" font-size="8.5" text-anchor="middle">Mach-O / PLT / *_chk Norm</text>
+    <text x="558" y="482" fill="#6d28d9" font-size="7.8" font-weight="600" text-anchor="middle">Orchestrator</text>
+    <rect x="676" y="404" width="196" height="86" rx="7" fill="#ffffff"/>
+    <rect x="676" y="404" width="196" height="86" rx="7" fill="rgba(245, 158, 11, 0.10)" stroke="#d97706" stroke-width="1.5"/>
+    <text x="774" y="424" fill="#0f172a" font-size="11" font-weight="700" text-anchor="middle">sarif.py &amp; Baseline</text>
+    <text x="774" y="441" fill="#475569" font-size="8.5" text-anchor="middle">SARIF 2.1.0 codeFlows</text>
+    <text x="774" y="455" fill="#475569" font-size="8.5" text-anchor="middle">SHA-256 Fingerprint Diff</text>
+    <text x="774" y="482" fill="#b45309" font-size="7.8" font-weight="600" text-anchor="middle">Diff Gate</text>
+    <rect x="244" y="532" width="204" height="92" rx="7" fill="#ffffff"/>
+    <rect x="244" y="532" width="204" height="92" rx="7" fill="rgba(16, 185, 129, 0.09)" stroke="#059669" stroke-width="1.5"/>
+    <text x="346" y="552" fill="#0f172a" font-size="11" font-weight="700" text-anchor="middle">taint.py (VEX IR)</text>
+    <text x="346" y="569" fill="#475569" font-size="8.5" text-anchor="middle">Reg + Unified sp/bp Frame</text>
+    <text x="346" y="583" fill="#475569" font-size="8.5" text-anchor="middle">Inter-Proc &amp; -O2 Tail-Call</text>
+    <text x="346" y="597" fill="#475569" font-size="8.5" text-anchor="middle">.rodata Const Suppression</text>
+    <text x="346" y="616" fill="#047857" font-size="7.8" font-weight="600" text-anchor="middle">Engine #2A · Taint</text>
+    <rect x="466" y="532" width="192" height="92" rx="7" fill="#ffffff"/>
+    <rect x="466" y="532" width="192" height="92" rx="7" fill="rgba(16, 185, 129, 0.09)" stroke="#059669" stroke-width="1.5"/>
+    <text x="562" y="552" fill="#0f172a" font-size="11" font-weight="700" text-anchor="middle">detectors.py (Stateful)</text>
+    <text x="562" y="569" fill="#475569" font-size="8.5" text-anchor="middle">CWE-416 UAF · 415 DblFree</text>
+    <text x="562" y="583" fill="#475569" font-size="8.5" text-anchor="middle">CWE-476 Unchecked NULL</text>
+    <text x="562" y="597" fill="#475569" font-size="8.5" text-anchor="middle">CWE-190 Arith · Stack OOB</text>
+    <text x="562" y="616" fill="#047857" font-size="7.8" font-weight="600" text-anchor="middle">Engine #2B · State</text>
+    <rect x="676" y="532" width="196" height="92" rx="7" fill="#ffffff"/>
+    <rect x="676" y="532" width="196" height="92" rx="7" fill="rgba(244, 63, 94, 0.09)" stroke="#e11d48" stroke-width="1.5"/>
+    <text x="774" y="552" fill="#0f172a" font-size="11" font-weight="700" text-anchor="middle">verifier.py (Z3 SMT)</text>
+    <text x="774" y="569" fill="#475569" font-size="8.5" text-anchor="middle">Bounded SimulationManager</text>
+    <text x="774" y="583" fill="#475569" font-size="8.5" text-anchor="middle">Stub ReturnUnconstrained</text>
+    <text x="774" y="597" fill="#475569" font-size="8.5" text-anchor="middle">Dead-Branch Unsat Prune</text>
+    <text x="774" y="616" fill="#be123c" font-size="7.8" font-weight="600" text-anchor="middle">verified = true</text>
+    <rect x="928" y="68" width="168" height="86" rx="7" fill="#ffffff"/>
+    <rect x="928" y="68" width="168" height="86" rx="7" fill="rgba(139, 92, 246, 0.09)" stroke="#7c3aed" stroke-width="1.5"/>
+    <text x="1012" y="88" fill="#0f172a" font-size="11" font-weight="700" text-anchor="middle">Analyst Triage</text>
+    <text x="1012" y="105" fill="#475569" font-size="8.5" text-anchor="middle">Decompiler Jump &amp; Slice</text>
+    <text x="1012" y="119" fill="#475569" font-size="8.5" text-anchor="middle">Team .gpr Audit Trail</text>
+    <text x="1012" y="146" fill="#6d28d9" font-size="7.8" font-weight="600" text-anchor="middle">Interactive</text>
+    <rect x="928" y="404" width="168" height="86" rx="7" fill="#ffffff"/>
+    <rect x="928" y="404" width="168" height="86" rx="7" fill="rgba(245, 158, 11, 0.10)" stroke="#d97706" stroke-width="1.5"/>
+    <text x="1012" y="424" fill="#0f172a" font-size="11" font-weight="700" text-anchor="middle">SAST Platforms</text>
+    <text x="1012" y="441" fill="#475569" font-size="8.5" text-anchor="middle">GitHub Code Scanning</text>
+    <text x="1012" y="455" fill="#475569" font-size="8.5" text-anchor="middle">DefectDojo / VS Code</text>
+    <text x="1012" y="482" fill="#b45309" font-size="7.8" font-weight="600" text-anchor="middle">SARIF 2.1.0</text>
+    <rect x="928" y="532" width="168" height="92" rx="7" fill="#ffffff"/>
+    <rect x="928" y="532" width="168" height="92" rx="7" fill="rgba(244, 63, 94, 0.09)" stroke="#e11d48" stroke-width="1.5"/>
+    <text x="1012" y="552" fill="#0f172a" font-size="11" font-weight="700" text-anchor="middle">Pre-Merge Gate</text>
+    <text x="1012" y="569" fill="#475569" font-size="8.5" text-anchor="middle">--fail-on high,critical</text>
+    <text x="1012" y="583" fill="#475569" font-size="8.5" text-anchor="middle">Exit 0 (Pass) / 1 (Block)</text>
+    <text x="1012" y="597" fill="#475569" font-size="8.5" text-anchor="middle">100% P/R (-O0 &amp; -O2)</text>
+    <text x="1012" y="616" fill="#be123c" font-size="7.8" font-weight="600" text-anchor="middle">Zero-FP Gate</text>
+
+    <!-- 5. LEGEND (Placed strictly outside all region boundaries at y=672..706) -->
+    <rect x="24" y="668" width="1072" height="38" rx="8" fill="#ffffff" stroke="#e2e8f0" stroke-width="1"/>
+    <rect x="42" y="681" width="16" height="11" rx="2.5" fill="rgba(14, 165, 233, 0.09)" stroke="#0284c7" stroke-width="1.3"/>
+    <text x="64" y="690" fill="#334155" font-size="8.5" font-weight="500">UI / CLI &amp; Tasks</text>
+    <rect x="216" y="681" width="16" height="11" rx="2.5" fill="rgba(16, 185, 129, 0.09)" stroke="#059669" stroke-width="1.3"/>
+    <text x="238" y="690" fill="#334155" font-size="8.5" font-weight="500">Core Engines (SSA + VEX)</text>
+    <rect x="390" y="681" width="16" height="11" rx="2.5" fill="rgba(139, 92, 246, 0.09)" stroke="#7c3aed" stroke-width="1.3"/>
+    <text x="412" y="690" fill="#334155" font-size="8.5" font-weight="500">Rules, IR &amp; .gpr State</text>
+    <rect x="564" y="681" width="16" height="11" rx="2.5" fill="rgba(249, 115, 22, 0.11)" stroke="#ea580c" stroke-width="1.3"/>
+    <text x="586" y="690" fill="#334155" font-size="8.5" font-weight="500">stdio IPC Bus</text>
+    <rect x="738" y="681" width="16" height="11" rx="2.5" fill="rgba(244, 63, 94, 0.09)" stroke="#e11d48" stroke-width="1.3"/>
+    <text x="760" y="690" fill="#334155" font-size="8.5" font-weight="500">Hybrid, Z3 &amp; Auth/Gate</text>
+    <rect x="912" y="681" width="16" height="11" rx="2.5" fill="rgba(245, 158, 11, 0.10)" stroke="#d97706" stroke-width="1.3"/>
+    <text x="934" y="690" fill="#334155" font-size="8.5" font-weight="500">SARIF 2.1.0 &amp; DevSecOps</text>
+  </g>
+</svg>
